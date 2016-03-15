@@ -10,9 +10,8 @@
 
 #include <ilcplex/ilocplex.h>
 #include <ilcplex/cplexx.h>
-
 #include <ilcplex/ilocplexi.h>
-#include <vector>
+
 #include <numeric>
 #include <stdlib.h>
 #include <math.h>
@@ -21,13 +20,26 @@
 #include "OptFrame/Util/MultiObjectiveMetrics2.hpp"
 #include "OptFrame/RandGen.hpp"
 
+#include <vector>
+
 ILOSTLBEGIN
 
 using namespace std;
 using namespace optframe;
 
+struct TupleMILPCoef
+{
+	double coefTotalCost, coefMaxLoad, coefWearTear;
+
+	TupleMILPCoef(double _coefTotalCost, double _coefWearTear, double _coefMaxLoad) :
+			coefTotalCost(_coefTotalCost), coefMaxLoad(_coefMaxLoad), coefWearTear(_coefWearTear)
+	{
+	}
+};
+
 class mathModelWLAN
 {
+
 public:
 	RandGen& rg;
 
@@ -43,8 +55,9 @@ public:
 
 	}
 
-	void printVectorPareto(vector<vector<double> > Pop, int nObj)
+	void printVectorOfVector(vector<vector<double> > Pop)
 	{
+		int nObj = Pop[0].size();
 		for (int nP = 0; nP < Pop.size(); nP++)
 		{
 			for (int nFO = 0; nFO < nObj; nFO++)
@@ -388,7 +401,7 @@ public:
 		if (extremeScenario == 1)
 		{
 			freeOfRiskCost = 94267;				//TODO
-			freeOfRiskMaxLoad = 110;				//TODO %based on wear and tear
+			freeOfRiskMaxLoad = 110;			//TODO %based on wear and tear
 		}
 		{
 			freeOfRiskCost = -4239.6;				//TODO
@@ -407,27 +420,38 @@ public:
 
 	}
 
-
 	void exec()
 	{
 
 		cout << "Exec Math Model Smart Energy Storage" << endl;
 
-		int nObj = 6;
+		int nObj = 3;
+		cout << "Number of objectives functions: " << nObj << endl;
 		UnionNDSets2 uND(nObj);
 
 		vector<string> vInputModel;
-		vInputModel.push_back("arqRealData24Worst");
-		vInputModel.push_back("arqRealData24Best");
+		vInputModel.push_back("bWCM");
+//		vInputModel.push_back("arqRealData24Worst");
+//		vInputModel.push_back("arqRealData24Best");
 
 		vector<int> vNMaxOpt;
-		vNMaxOpt.push_back(20); //TODO verificar erro quando valor eh 5
+		//TODO verificar erro quando valor eh 5 -
+		// Updated: March 2016 -- seams to be fixed adding one element to vector of coeficients
+		vNMaxOpt.push_back(10);
+
 		vector<int> vTLim;
-		vTLim.push_back(60);
+		vTLim.push_back(10);
 
 		int nIntervals = 24;
-		int nDiscrete = 11;
-		int nPEV = 3;
+		int nDiscrete = 100;
+		int nPEV = 20;
+		int nObjMILP = 3;
+//		nIntervals = 24;
+//		nDiscrete = 11;
+//		nPEV = 3;
+
+		int nVariablesPerInterval = (2 * nDiscrete * nPEV) + 2;
+		int nTotal = nIntervals * nVariablesPerInterval + nObjMILP;
 
 		for (int iM = 0; iM < vInputModel.size(); iM++)
 			for (int nM = 0; nM < vNMaxOpt.size(); nM++)
@@ -435,16 +459,42 @@ public:
 				{
 					int nExpBatches = vNMaxOpt[nM];
 
-					vector<double> vCoefTotalCost(nExpBatches);
-					vector<double> vCoefMaxLoad(nExpBatches);
-					vector<double> vCoefWearTear(nExpBatches);
+					vector<double> vCoefTotalCost(nExpBatches + 1);
+					vector<double> vCoefMaxLoad(nExpBatches + 1);
+					vector<double> vCoefWearTear(nExpBatches + 1);
+
 					for (int n = 0; n <= nExpBatches; n++)
 					{
 						double coef = n * 1.00 / nExpBatches * 1.00;
 						vCoefTotalCost[n] = coef;
 						vCoefMaxLoad[n] = coef;
 						vCoefWearTear[n] = coef;
+//						cout << coef << endl;
 					}
+
+					vector<TupleMILPCoef> vCoef;
+					for (int n1 = 0; n1 <= nExpBatches; n1++)
+						for (int n2 = 0; n2 <= nExpBatches; n2++)
+							for (int n3 = 0; n3 <= nExpBatches; n3++)
+							{
+
+								double coefTotalCost = vCoefTotalCost[n1];
+								double coefWearTear = vCoefWearTear[n2];
+								double coefMaxLoad = vCoefMaxLoad[n3];
+								if ((coefTotalCost == 0) && (coefWearTear == 0) && (coefMaxLoad == 0))
+								{
+									//In the current MILP model, maxLoad Obj should always be minimized
+									TupleMILPCoef milpCoef(0, 0, 0.01);
+									vCoef.push_back(milpCoef);
+								}
+								else
+								{
+
+									TupleMILPCoef milpCoef(coefTotalCost, coefWearTear, coefMaxLoad);
+									vCoef.push_back(milpCoef);
+								}
+							}
+//					getchar();
 
 					vector<vector<double> > Pop;
 					vector<vector<double> > PopGridRate;
@@ -459,234 +509,313 @@ public:
 						IloRangeArray rng(env);
 
 						string modelLPAdress = "./LP/" + vInputModel[iM] + ".lp";
+						cout << "solving: " << modelLPAdress << endl;
 
 						cplex.importModel(model, modelLPAdress.c_str(), obj, var, rng);
 
-						for (int n1 = 0; n1 <= nExpBatches; n1++)
-							for (int n2 = 0; n2 <= nExpBatches; n2++)
-								for (int n3 = 0; n3 <= nExpBatches; n3++)
-								{
-									if ((n1 == 0) && (n2 == 0) && (n3 == 0))
-									{
-										//NOTHING TO DO
-									}
-									else
-									{
-										double coefTotalCost = vCoefTotalCost[n1];
-										double coefWearTear = vCoefWearTear[n2];
-										double coefMaxLoad = vCoefMaxLoad[n3];
+						int nMILPProblems = vCoef.size();
+						cout << "nMILPProblems = " << nMILPProblems << endl;
+//						getchar();
+						for (int milpProblems = 0; milpProblems <= nMILPProblems; milpProblems++)
+						{
+
+							double coefTotalCost = vCoef[milpProblems].coefTotalCost;
+							double coefWearTear = vCoef[milpProblems].coefWearTear;
+							double coefMaxLoad = vCoef[milpProblems].coefMaxLoad;
 
 //										if (coefTotalCost < 0.15)
 //											coefTotalCost = 0.001;
-//
-										if (coefMaxLoad < 0.1)
-											coefMaxLoad = 0.01;
+//							if (coefMaxLoad < 0.01)
+//								coefMaxLoad = 0.01;
 
-										cout << "coefTotalCost" << coefTotalCost << endl;
-										cout << "coefWearTear" << coefWearTear << endl;
-										cout << "coefMaxLoad" << coefMaxLoad << endl;
+							cout << "=====================================\n";
+							cout << "Creating MILP model with: \n";
+							cout << "coefTotalCost: " << coefTotalCost;
+							cout << "\tcoefWearTear: " << coefWearTear;
+							cout << "\tcoefMaxLoad: " << coefMaxLoad << endl << endl;
 //										getchar();
-										//cout << obj << endl;
-										//	getchar();
-										obj.setLinearCoef(var[0], coefTotalCost);
-										obj.setLinearCoef(var[1], coefWearTear);
-										obj.setLinearCoef(var[2], coefMaxLoad);
-										//								cout << obj << endl;
-										//								getchar();
+							//cout << obj << endl;
+							//	getchar();
+							obj.setLinearCoef(var[0], coefTotalCost);
+							obj.setLinearCoef(var[1], coefWearTear);
+							obj.setLinearCoef(var[2], coefMaxLoad);
+							//								cout << obj << endl;
+							//								getchar();
 
-										/*
+							/*
 
-										 model.remove(obj);
+							 model.remove(obj);
 
-										 getchar();
-										 IloExpr newObjFunc(env);
-										 //newObjFunc += IloNumVar(env, 0.0, IloInfinity, ILOFLOAT, "objFuncTotalDist" );
-										 newObjFunc += obj.getExpr();
-										 cout << newObjFunc << endl;
+							 getchar();
+							 IloExpr newObjFunc(env);
+							 //newObjFunc += IloNumVar(env, 0.0, IloInfinity, ILOFLOAT, "objFuncTotalDist" );
+							 newObjFunc += obj.getExpr();
+							 cout << newObjFunc << endl;
 
-										 // obj.setExpr(newObjFunc);
+							 // obj.setExpr(newObjFunc);
 
-										 //obj = IloMinimize(env, newObjFunc,"newObjFunc");
-										 cout << obj << endl;
+							 //obj = IloMinimize(env, newObjFunc,"newObjFunc");
+							 cout << obj << endl;
 
-										 //model.add(obj);
-										 // cplex.importModel(model, modelAdress.c_str(), obj, var, rng);
-										 getchar();
-										 */
+							 //model.add(obj);
+							 // cplex.importModel(model, modelAdress.c_str(), obj, var, rng);
+							 getchar();
+							 */
 
-										cplex.extract(model);
-										cplex.setParam(cplex.TiLim, vTLim[tL]);
-										//cplex.setParam(cplex.MIPEmphasis, cplex.MIPEmphasisHiddenFeas);
-										if (!cplex.solve())
-										{
-											env.error() << "Failed to optimize LP" << endl;
-											throw(-1);
-										}
-										cout << "Problem SOLVED!!" << endl;
-										//getchar();
-										IloNumArray vals(env);
+							cplex.extract(model);
+							cplex.setParam(cplex.TiLim, vTLim[tL]);
 
-										for (int nS = 0; nS < cplex.getSolnPoolNsolns(); nS++)
-										{
-											vector<double> energySelling;
-											vector<double> energyBuying;
-											vector<vector<vector<bool> > > energyCharging;
-											vector<vector<vector<bool> > > energyDischarging;
-											vector<double> gridRate;
-											vector<vector<double> > batteryRate;
+//============== PLAYING WITH STARTING MIP==============///
+//============================================================///
 
-											cout << "Solution: " << nS + 1 << endl;
+//							cplex.readMIPStart("./LP/sol.mst");
+//							cplex.readMIPStarts("./LP/allSol.mst");
+//							cplex.readMIPStarts("./LP/sol.mst");
+//							cplex.readMIPStarts("./LP/sol2.mst");
+//							cplex.readMIPStarts("./LP/allSol.mst");
 
-											cplex.getValues(vals, var, nS);
+//							IloNumArray valsMIP(env);
+//							cplex.getValues(valsMIP, var, 0);
+
+//							IloNumVarArray startVar(env);
+//							IloNumArray startVal(env);
+//							for (int nV = 3; nV < nTotal; nV += nVariablesPerInterval)
+//							{
+//								for (int pev = 0; pev < nPEV; pev++)
+//									for (int c = 0; c < nDiscrete; c++)
+//									{
+//										//cout<<nV + 1 + pevC + pev * nDiscrete<<endl;
+//										startVar.add(var[nV + 1 + c + 1 + pev * nDiscrete]);
+//										startVal.add(rg.rand(2));
+//
+//									}
+//
+//								for (int pev = 0; pev < nPEV; pev++)
+//									for (int c = 0; c < nDiscrete; c++)
+//									{
+//										startVar.add(var[nV + 1 + c + 1 + pev * nDiscrete]);
+//										startVal.add(rg.rand(2));
+//									}
+//							}
+
+//							cplex.addMIPStart(startVar, startVal);
+//							cout << startVal << endl;
+//							cout << startVal << endl;
+
+//							getchar();
+
+//==============FINISH PLAYING WITH STARTING MIP==============///
+//============================================================///
+
+							//cplex.setParam(cplex.MIPEmphasis, cplex.MIPEmphasisHiddenFeas);
+							IloBool solveBool = cplex.solve();
+							int nCplexPoolOfSolutions = cplex.getSolnPoolNsolns();
+
+							if (!solveBool)
+							{
+//								env.error() << "Failed to optimize LP" << endl;
+//								throw(-1);
+								cout << "=====================================\n";
+								cout << "Any solution was found! The following parameters were used: \n";
+								cout << "coefTotalCost: " << coefTotalCost;
+								cout << "\t coefWearTear: " << coefWearTear;
+								cout << "\t coefMaxLoad: " << coefMaxLoad << "\n";
+								cout << "\t cplex.TiLim: " << vTLim[tL] << "\n";
+								cout << "=====================================\n";
+							}
+							else
+							{
+								cout << "=====================================\n";
+								cout << "Problem SOLVED!! \n";
+								cout << nCplexPoolOfSolutions << " solutions were obtained. \n";
+								cout << "=====================================\n\n";
+							}
+
+							//getchar();
+							IloNumArray vals(env);
+
+							if (nCplexPoolOfSolutions > 0)
+								for (int nS = 0; nS < nCplexPoolOfSolutions; nS++)
+								{
+									vector<double> energySelling;
+									vector<double> energyBuying;
+									vector<vector<vector<bool> > > energyCharging;
+									vector<vector<vector<bool> > > energyDischarging;
+									vector<double> gridRate;
+									vector<vector<double> > batteryRate;
+
+									cout << "=====================================\n";
+									cout << "Extracting solution: " << nS + 1 << "/" << nCplexPoolOfSolutions << endl;
+
+									//objCost[-inf..inf] , objWearTear[-inf..inf] , objMaxLoad[-inf..inf]
+									// energySelling(1),energyBuying(1)
+									// yCharge(C1,1,1), yCharge(C1,2,1), ..., yCharge(C3,Cycle,1), ..., yDischarge(C3,Cyle,1)
+									// energySelling(..),energyBuying(..)
+									// yCharge(....) ... yDischarge(...)
+									// BaterryRate(C1,1), BaterryRate(C2,1), ...,  yBaterryRate(pev,Interval)
+									// energySellingActive(1), energySellingActive(2), ..., energyBuyingActive(1), energyBuyingActive(2),...
+									// totalChargingDischargingPayed
+
+									cplex.getValues(vals, var, nS);
 //											cout << var << endl;
 //											getchar();
-											double objCost = vals[0];
-											double foWearTear = vals[1];
-											double foMaxPeakLoad = vals[2];
+									double objCost = vals[0];
+									double objWearTear = vals[1];
+									double objMaxPeakLoad = vals[2];
 
-//											cout << "objCost = " << objCost << endl;
-//											cout << "objWearTear = " << foWearTear << endl;
-//											cout << "objMaxLoad = " << foMaxPeakLoad << endl;
-//											getchar();
+									cout << "objCost = " << objCost << endl;
+									cout << "objWearTear = " << objWearTear << endl;
+									cout << "objMaxLoad = " << objMaxPeakLoad << endl;
 
-											double totalChargingDischargingPayed = vals[vals.getSize() - 1];
-											cout << "totalChargingDischargingPayed = " << totalChargingDischargingPayed << endl;
+									double totalChargingDischargingPayed = vals[vals.getSize() - 1];
+									cout << "totalChargingDischargingPayed = " << totalChargingDischargingPayed << endl;
 
-											cplex.writeSolution("teste.mst", nS);
-//											cplex.writeMIPStarts("teste.mst", nS);
+//								cplex.writeSolution("teste.mst", nS);
+//								cplex.writeMIPStarts("solMIPStart.mst", nS);
+//								cout<<nMILPProblems<<endl;
+//								getchar();
+//								cplex.writeMIPStarts("solMIPStart.mst", nS);
 //											extremeScenario(vInputModel[1], coefTotalCost, coefWearTear, coefMaxLoad);
 //											getchar();
-											// energySell + energyBuying + nDiscrete*yCharge + nDiscrete*yDischarge
-											int nVariablesPerInterval = (2 * nDiscrete * nPEV) + 2;
+									// energySell + energyBuying + nDiscrete*yCharge + nDiscrete*yDischarge
 
-											int nTotal = nIntervals * nVariablesPerInterval + nObj;
+									for (int nV = 3; nV < nTotal; nV += nVariablesPerInterval)
+									{
+										double energySold = vals[nV];
+										double energyBought = vals[nV + 1];
+										energySelling.push_back(energySold);
+										energyBuying.push_back(energyBought);
 
-											for (int nV = 3; nV < nTotal; nV += nVariablesPerInterval)
+										if (energyBought > energySold)
+											gridRate.push_back(energyBought);
+										else
+											gridRate.push_back(energySold * -1);
+
+										// =======================================================
+										//Checks if energy is being sold and bought at the same time
+										if ((energySold > 0.00001) && (energyBought > 0.00001))
+										{
+											cout << "BUG!" << endl;
+											cout << "energyBought = " << energyBought << endl;
+											cout << "energySold = " << energySold << endl;
+											cout << var << endl;
+											cout << vals << endl;
+											getchar();
+										}
+										// =======================================================
+
+										vector<vector<bool> > pevsCharges;
+
+										for (int pev = 0; pev < nPEV; pev++)
+										{
+											vector<bool> pevCharge;
+											for (int c = 0; c < nDiscrete; c++)
 											{
-												double energySold = vals[nV];
-												double energyBought = vals[nV + 1];
-												energySelling.push_back(energySold);
-												energyBuying.push_back(energyBought);
-
-												if (energyBought > energySold)
-													gridRate.push_back(energyBought);
+												//cout<<nV + 1 + pevC + pev * nDiscrete<<endl;
+												double boolCharge = vals[nV + 1 + c + 1 + pev * nDiscrete];
+												if (boolCharge > 0.9)
+													pevCharge.push_back(true);
 												else
-													gridRate.push_back(energySold * -1);
+													pevCharge.push_back(false);
+											}
 
-												if ((energySold > 0.00001) && (energyBought > 0.00001))
-												{
-													cout << "BUG!" << endl;
-													cout << "energyBought = " << energyBought << endl;
-													cout << "energySold = " << energySold << endl;
-													cout << var << endl;
-													cout << vals << endl;
-													getchar();
-												}
-
-												vector<vector<bool> > pevsCharges;
-
-												for (int pev = 0; pev < nPEV; pev++)
-												{
-													vector<bool> pevCharge;
-													for (int c = 0; c < nDiscrete; c++)
-													{
-														//cout<<nV + 1 + pevC + pev * nDiscrete<<endl;
-														double boolCharge = vals[nV + 1 + c + 1 + pev * nDiscrete];
-														if (boolCharge > 0.9)
-															pevCharge.push_back(true);
-														else
-															pevCharge.push_back(false);
-													}
-
-													pevsCharges.push_back(pevCharge);
+											pevsCharges.push_back(pevCharge);
 
 //													for (int c = 0; c < nDiscrete; c++)
 //														cout << pevsCharges[pev][c] << "\t";
 //													cout << endl;
 //													getchar();
 
-												}
+										}
 
-												energyCharging.push_back(pevsCharges);
+										energyCharging.push_back(pevsCharges);
 
-												vector<vector<bool> > pevsDischarge;
+										vector<vector<bool> > pevsDischarge;
 
-												for (int pev = 0; pev < nPEV; pev++)
-												{
-													vector<bool> pevDischargeCharge;
-													for (int c = 0; c < nDiscrete; c++)
-													{
-														double boolDischarge = vals[nV + 1 + nPEV * nDiscrete + c + 1 + pev * nDiscrete];
-														//cout<<nV + 1 +nPEV*nDiscrete + pevC + pev * nDiscrete<<endl;
-														if (boolDischarge > 0.9)
-															pevDischargeCharge.push_back(true);
-														else
-															pevDischargeCharge.push_back(false);
-													}
-													pevsDischarge.push_back(pevDischargeCharge);
+										for (int pev = 0; pev < nPEV; pev++)
+										{
+											vector<bool> pevDischargeCharge;
+											for (int c = 0; c < nDiscrete; c++)
+											{
+												double boolDischarge = vals[nV + 1 + nPEV * nDiscrete + c + 1 + pev * nDiscrete];
+												//cout<<nV + 1 +nPEV*nDiscrete + pevC + pev * nDiscrete<<endl;
+												if (boolDischarge > 0.9)
+													pevDischargeCharge.push_back(true);
+												else
+													pevDischargeCharge.push_back(false);
+											}
+											pevsDischarge.push_back(pevDischargeCharge);
 
 //													for (int c = 0; c < nDiscrete; c++)
 //														cout << pevsDischarge[pev][c] << "\t";
 //													cout << endl;
 //													getchar();
-												}
-												energyDischarging.push_back(pevsDischarge);
-
-											}
-
-											for (int pev = 0; pev < nPEV; pev++)
-											{
-												vector<double> pevBatteryRate;
-												//First interval
-												pevBatteryRate.push_back(vals[nTotal + pev]);
-
-												int beginBatteryRateIndex = nTotal + pev * (nIntervals - 1) + nPEV;
-												for (int nV = beginBatteryRateIndex; nV < beginBatteryRateIndex + (nIntervals - 1); nV++)
-												{
-													pevBatteryRate.push_back(vals[nV]);
-												}
-												batteryRate.push_back(pevBatteryRate);
-											}
-
-//											for (int it = 0; it < nIntervals; it++)
-//											{
-//												cout << "energySelling[" << it << "] = " << energySelling[it] << endl;
-//												cout << "energyBuying[" << it << "] = " << energyBuying[it] << endl;
-//												cout << "gridRate[" << it << "] = " << gridRate[it] << endl;
-//												cout << "batteryRatePEV1[" << it << "] = " << batteryRate[0][it] << endl;
-//												cout << "batteryRatePEV2[" << it << "] = " << batteryRate[1][it] << endl;
-//												cout << "batteryRatePEV3[" << it << "] = " << batteryRate[2][it] << endl;
-//											}
-//											getchar();
-
-											int exScenario = 1;
-											if (iM == 1)
-												int exScenario = 0;
-											vector<double> newFo = readDifferentScenarios(energySelling, energyBuying, energyCharging, energyDischarging, objCost, foMaxPeakLoad, totalChargingDischargingPayed, exScenario, nDiscrete, nPEV);
-
-											vector<double> fo;
-											fo.push_back(vals[0]); //total cost
-											fo.push_back(vals[1]); // wear and tear
-											fo.push_back(vals[2]); // max load
-											fo.push_back(newFo[0]); //extreme
-											fo.push_back(newFo[1]); // sharpe ratio total cost
-											fo.push_back(newFo[2]); //sharpe ratio max load
-											Pop.push_back(fo);
-											PopGridRate.push_back(gridRate);
 										}
+										energyDischarging.push_back(pevsDischarge);
 
 									}
 
+									for (int pev = 0; pev < nPEV; pev++)
+									{
+										vector<double> pevBatteryRate;
+										//First interval
+										pevBatteryRate.push_back(vals[nTotal + pev]);
+
+										int beginBatteryRateIndex = nTotal + pev * (nIntervals - 1) + nPEV;
+										for (int nV = beginBatteryRateIndex; nV < beginBatteryRateIndex + (nIntervals - 1); nV++)
+										{
+											pevBatteryRate.push_back(vals[nV]);
+										}
+										batteryRate.push_back(pevBatteryRate);
+									}
+
+//								for (int it = 0; it < nIntervals; it++)
+//								{
+//									cout << "energySelling[" << it << "] = " << energySelling[it] << endl;
+//									cout << "energyBuying[" << it << "] = " << energyBuying[it] << endl;
+//									cout << "gridRate[" << it << "] = " << gridRate[it] << endl;
+//									for (int pev = 0; pev < nPEV; pev++)
+//										cout << "batteryRatePEV" << pev + 1 << "[" << it << "] = " << batteryRate[pev][it] << endl;
+//								}
+//								getchar();
+
+									int exScenario = 1;
+									if (iM == 1)
+										int exScenario = 0;
+
+//									vector<double> newFo = readDifferentScenarios(energySelling, energyBuying, energyCharging, energyDischarging, objCost, foMaxPeakLoad, totalChargingDischargingPayed, exScenario, nDiscrete, nPEV);
+
+									vector<double> fo;
+									fo.push_back(objCost); //total cost
+									fo.push_back(objWearTear); // wear and tear
+									fo.push_back(objMaxPeakLoad); // max load
+//									fo.push_back(newFo[0]); //extreme
+//									fo.push_back(newFo[1]); // sharpe ratio total cost
+//									fo.push_back(newFo[2]); //sharpe ratio max load
+//									fo.push_back(0); //extreme
+//									fo.push_back(0); // sharpe ratio total cost
+//									fo.push_back(0); //sharpe ratio max load
+									Pop.push_back(fo);
+									PopGridRate.push_back(gridRate);
+
+									cout << "Solution: " << nS + 1 << "/" << nCplexPoolOfSolutions << " has been extracted with success and added to the population" << endl;
+									cout << "=====================================\n";
+
 								}
 
-						printVectorPareto(Pop, nObj);
+							cout << "=====================================\n\n";
+
+						}
+
+						cout << "Printing obtained population of solutions with size :" << Pop.size() << endl;
+						printVectorOfVector(Pop);
 						vector<vector<double> > paretoSET = uND.createParetoSet(Pop);
 						pair<vector<vector<double> >, vector<vector<double> > > paretoPopRate = uND.createParetoSetSavingRate(Pop, PopGridRate);
 
 						double nParetoInd = paretoSET.size();
 
-						cout << "Pareto front" << endl;
-						printVectorPareto(paretoSET, nObj);
+						cout << "Printing Pareto Front of size:" << paretoSET.size() << endl;
+						printVectorOfVector(paretoSET);
 						vector<vector<vector<double> > > vParetoSet;
 						vParetoSet.push_back(paretoSET);
 
@@ -778,6 +907,7 @@ public:
 
 // 2
 
-};
+}
+;
 
 #endif /* OPTIMALLINEARREGRESSION_HPP_ */

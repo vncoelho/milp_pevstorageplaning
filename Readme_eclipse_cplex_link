@@ -1,0 +1,4 @@
+/opt/ibm/ILOG/CPLEX_Studio1251/concert/include
+/opt/ibm/ILOG/CPLEX_Studio1251/cplex/include
+
+Properties -> c/c++ General/ Path and Symbols/ Includes / GNU c++
