@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -21,58 +21,74 @@
 #ifndef SELECTION_HPP_
 #define SELECTION_HPP_
 
-#include "../../Population.hpp"
+#include "../../MultiSolution.hpp"
+#include "EA.h"
 
 namespace optframe
 {
 
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class Selection
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+class Selection : public Component, public EA
 {
-   //private:
-protected:
-
-   typedef Solution<R, ADS> chromossome;
-   //typedef vector<chromossome*> Population;
-   typedef vector<Evaluation<DS>*> FitnessValues;
-
-   //Population * population;
-   //FitnessValues * fitnessValues;
-
 public:
 
-   //virtual pair<chromossome&, chromossome&>& select(Population& p, FitnessValues& fv) = 0;
+	virtual ~Selection()
+	{
+	}
 
-   //virtual pair<chromossome&, chromossome&> select(Population& p, FitnessValues& fv) = 0;
+	virtual pair<unsigned, unsigned> select(const MultiSolution<R, ADS>& population, const MultiEvaluation& mev, const vector<double>& fv) = 0;
 
-   /*
-    virtual Population&
-    select(Population& currentPopulation, FitnessValues& fv_crrtPop,
-    Population& intermediatePopulation, FitnessValues& fv_intPop) = 0;
-    */
 
-   /*
-    virtual Population&
-    select(unsigned populationSize, Population& currentPopulation, FitnessValues& fv_crrtPop,
-    Population& intermediatePopulation, FitnessValues& fv_intPop) = 0;
-    */
+	static double getMax(const vector<double>& fv)
+	{
+		double lmax = -10000000;
+		for (int i = 0; i < fv.size(); i++)
+			if (fv[i] > lmax)
+				lmax = fv[i];
+		return lmax;
+	}
 
-   /*
-    virtual Population<R, ADS>&
-    select(unsigned populationSize, Population<R, ADS>& currentPopulation, FitnessValues& fv_crrtPop,
-    Population<R, ADS>& intermediatePopulation, FitnessValues& fv_intPop) = 0;
-    */
+	static double getSum(const vector<double>& fv)
+	{
+		double s = 0;
+		for (int i = 0; i < fv.size(); i++)
+			s += fv[i];
+		return s;
+	}
 
-   /*
-    virtual Population<R, ADS>&
-    select(const Population<R, ADS>& currentPopulation, const FitnessValues& fv_crrtPop,
-    const Population<R, ADS>& intermediatePopulation, const FitnessValues& fv_intPop) const = 0;
-    */
+	static void normalize(vector<double>& fv)
+	{
+		double sum = getSum(fv);
+		if(sum == 0)
+			sum = 1;
+		for (int i = 0; i < fv.size(); i++)
+		{
+			fv[i] = fv[i] / sum;
+			if(fv[i] != fv[i]) // is nan
+			{
+				cout << "Selection::normalize()::NAN VALUE!" << endl;
+				cout << fv << endl;
+				exit(1);
+			}
+		}
+	}
 
-   virtual Population<R, ADS>&
-   select(const Population<R, ADS>& currentPopulation, const FitnessValues& fv_crrtPop,
-         const Population<R, ADS>& intermediatePopulation, const FitnessValues& fv_intPop, const unsigned elitist_chrm_nb) const = 0;
+	virtual bool compatible(string s)
+	{
+		return (s == idComponent()) || (Component::compatible(s));
+	}
 
+	static string idComponent()
+	{
+		stringstream ss;
+		ss << Component::idComponent() << ":" << EA::family() << ":Selection";
+		return ss.str();
+	}
+
+	virtual string id() const
+	{
+		return idComponent();
+	}
 };
 
 }

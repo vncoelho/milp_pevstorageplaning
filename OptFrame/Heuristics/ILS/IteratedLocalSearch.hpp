@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -27,6 +27,7 @@
 #include "../../Constructive.h"
 #include "../../SingleObjSearch.hpp"
 #include "../../Evaluator.hpp"
+#include "../../Timer.hpp"
 
 #include "ILS.h"
 
@@ -34,107 +35,105 @@ namespace optframe
 {
 
 template<class H, class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class IteratedLocalSearch: public ILS, public SingleObjSearch<R, ADS, DS>
+class IteratedLocalSearch: public ILS, public SingleObjSearch<R, ADS>
 {
 protected:
-	Evaluator<R, ADS, DS>& evaluator;
-	Constructive<R, ADS>& constructive;
+    Evaluator<R, ADS>& evaluator;
+    Constructive<R, ADS>& constructive;
 
 public:
 
-	IteratedLocalSearch(Evaluator<R, ADS, DS>& _evaluator, Constructive<R, ADS>& _constructive) :
-			evaluator(_evaluator), constructive(_constructive)
-	{
-	}
+    IteratedLocalSearch(Evaluator<R, ADS>& _evaluator, Constructive<R, ADS>& _constructive) :
+            evaluator(_evaluator), constructive(_constructive)
+    {
+    }
 
-	virtual ~IteratedLocalSearch()
-	{
-	}
+    virtual ~IteratedLocalSearch()
+    {
+    }
 
-	virtual H& initializeHistory() = 0;
+    virtual H& initializeHistory() = 0;
 
-	virtual void localSearch(Solution<R, ADS>& s, Evaluation<DS>& e, double timelimit, double target_f) = 0;
+    virtual void localSearch(Solution<R, ADS>& s, Evaluation& e, double timelimit, double target_f) = 0;
 
-	virtual void perturbation(Solution<R, ADS>& s, Evaluation<DS>& e, double timelimit, double target_f, H& history) = 0;
+    virtual void perturbation(Solution<R, ADS>& s, Evaluation& e, double timelimit, double target_f, H& history) = 0;
 
-	virtual Solution<R, ADS>& acceptanceCriterion(const Solution<R, ADS>& s1, const Solution<R, ADS>& s2, H& history) = 0;
+    virtual Solution<R, ADS>& acceptanceCriterion(const Solution<R, ADS>& s1, const Solution<R, ADS>& s2, H& history) = 0;
 
-	virtual bool terminationCondition(H& history) = 0;
+    virtual bool terminationCondition(H& history) = 0;
 
-	pair<Solution<R, ADS>&, Evaluation<DS>&>* search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation<DS>* _e = NULL)
-	{
-		cout << "ILS search(" << target_f << "," << timelimit << ")" << endl;
+    pair<Solution<R, ADS>&, Evaluation&>* search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation* _e = NULL)
+    {
+        cout << "ILS search(" << target_f << "," << timelimit << ")" << endl;
 
-		Timer tnow;
+        Timer tnow;
 
-		//Solution<R, ADS>& s = constructive.generateSolution();
-		//Evaluation<DS>& e = evaluator.evaluate(s);
+        Solution<R, ADS>& s = constructive.generateSolution();
+        Evaluation& e = evaluator.evaluate(s);
 
-		Solution<R, ADS>& s = _s->clone();
-		Evaluation<DS>& e = _e->clone();
+        H* history = &initializeHistory();
 
+        // 's0' <- GenerateSolution
+        // 's*' <- localSearch 's'
 
-		H* history = &initializeHistory();
+        localSearch(s, e, (timelimit - (tnow.now())), target_f);
 
-		// 's0' <- GenerateSolution
-		// 's*' <- localSearch 's'
+        Solution<R, ADS>* sStar = &s.clone();
+        Evaluation* eStar = &e.clone();
 
+        cout << "ILS starts: ";
+        e.print();
 
-		localSearch(s, e, (timelimit - (tnow.now())), target_f);
+        do
+        {
+            Solution<R, ADS>* s1 = &sStar->clone();
+            Evaluation* e1 = &eStar->clone();
 
-		Solution<R, ADS>* sStar = &s.clone();
-		Evaluation<DS>* eStar = &e.clone();
+            perturbation(*s1, *e1, (timelimit - (tnow.now())), target_f, *history);
 
-		cout << "ILS starts: ";
-		e.print();
+            localSearch(*s1, *e1, (timelimit - (tnow.now())), target_f);
 
-		do
-		{
-			Solution<R, ADS>* s1 = &sStar->clone();
-			Evaluation<DS>* e1 = &eStar->clone();
+            Solution<R, ADS>* s2 = s1;
+            Evaluation* e2 = e1;
 
-			perturbation(*s1, *e1, (timelimit - (tnow.now())), target_f, *history);
+            Solution<R, ADS>* sStar1 = &acceptanceCriterion(*sStar, *s2, *history);
 
-			localSearch(*s1, *e1, (timelimit - (tnow.now())), target_f);
+            delete sStar;
+            delete eStar;
+            delete s2;
+            delete e2;
 
-			Solution<R, ADS>* s2 = s1;
-			Evaluation<DS>* e2 = e1;
+            sStar = sStar1;
+            eStar = &evaluator.evaluate(*sStar);
 
-			Solution<R, ADS>* sStar1 = &acceptanceCriterion(*sStar, *s2, *history);
+        } while (evaluator.betterThan(target_f, eStar->evaluation()) && !terminationCondition(*history) && ((tnow.now()) < timelimit));
 
-			delete sStar;
-			delete eStar;
-			delete s2;
-			delete e2;
+        if (evaluator.betterThan(eStar->evaluation(), target_f))
+            cout << "ILS exit by target_f: " << eStar->evaluation() << " better than " << target_f << endl;
 
-			sStar = sStar1;
-			eStar = &evaluator.evaluate(*sStar);
+        e = *eStar;
+        s = *sStar;
 
-		} while (evaluator.betterThan(target_f, eStar->evaluation()) && !terminationCondition(*history) && ((tnow.now()) < timelimit));
+        delete eStar;
+        delete sStar;
 
-		e = *eStar;
-		s = *sStar;
+        delete history;
 
-		delete eStar;
-		delete sStar;
+        return new pair<Solution<R, ADS>&, Evaluation&>(s, e);
+    }
 
-		delete history;
+    static string idComponent()
+    {
+        stringstream ss;
+        ss << SingleObjSearch<R, ADS>::idComponent() << ":" << ILS::family();
+        //ss << SingleObjSearch<R, ADS>::idComponent() << ILS::family << "IteratedLocalSearch:";
+        return ss.str();
+    }
 
-		return new pair<Solution<R, ADS>&, Evaluation<DS>&>(s, e);
-	}
-
-	static string idComponent()
-	{
-		stringstream ss;
-		ss << SingleObjSearch<R, ADS, DS>::idComponent() << ILS::family();
-		//ss << SingleObjSearch<R, ADS, DS>::idComponent() << ILS::family << "IteratedLocalSearch:";
-		return ss.str();
-	}
-
-	virtual string id() const
-	{
-		return idComponent();
-	}
+    virtual string id() const
+    {
+        return idComponent();
+    }
 };
 
 }

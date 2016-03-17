@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -26,8 +26,8 @@
 namespace optframe
 {
 
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class Intensification : public LocalSearch<R, ADS, DS>
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+class Intensification : public LocalSearch<R, ADS>
 {
 public:
 
@@ -47,7 +47,7 @@ public:
 	static string idComponent()
 	{
 		stringstream ss;
-		ss << LocalSearch<R, ADS, DS>::idComponent() << "INTENSIFICATION:";
+		ss << LocalSearch<R, ADS>::idComponent() << "INTENSIFICATION:";
 		return ss.str();
 
 	}

@@ -27,6 +27,8 @@
 #include "../../LocalSearch.hpp"
 #include "../../NSSeq.hpp"
 #include "../../SingleObjSearch.hpp"
+#include "../../Evaluator.hpp"
+#include "../../Constructive.h"
 
 #include "../../Timer.hpp"
 namespace optframe
@@ -46,17 +48,17 @@ struct ESContinuousStructure
 };
 
 //CADA INDIVIDUO EH UM PAR DE SOLUCAO E UMA TUPLE COM O PARAMETROS DA ESTRATEGIA
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS, class ESStruct = double>
-class ESContinous: public SingleObjSearch<R, ADS, DS>
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class ESStruct = double>
+class ESContinous: public SingleObjSearch<R, ADS>
 {
 private:
 
 	Solution<R, ADS>* sStar;
-	Evaluation<DS>* eStar;
-	Evaluator<R, ADS, DS>& eval;
+	Evaluation* eStar;
+	Evaluator<R, ADS>& eval;
 	Constructive<R, ADS>& constructive;
-	vector<NSSeq<R, ADS, DS>*> vNS;
-	LocalSearch<R, ADS, DS>& ls;
+	vector<NSSeq<R, ADS>*> vNS;
+	LocalSearch<R, ADS>& ls;
 
 	const int mi;
 	const int lambda;
@@ -83,7 +85,7 @@ private:
 
 public:
 
-	ESContinous(Evaluator<R, ADS, DS>& _eval, Constructive<R, ADS>& _constructive, vector<NSSeq<R, ADS, DS>*> _vNS, LocalSearch<R, ADS, DS>& _ls, int _mi, int _lambda, int _gMax) :
+	ESContinous(Evaluator<R, ADS>& _eval, Constructive<R, ADS>& _constructive, vector<NSSeq<R, ADS>*> _vNS, LocalSearch<R, ADS>& _ls, int _mi, int _lambda, int _gMax) :
 			eval(_eval), constructive(_constructive), vNS(_vNS), ls(_ls), mi(_mi), lambda(_lambda), gMax(_gMax)
 	{
 		sStar = NULL;
@@ -109,7 +111,7 @@ public:
 
 		for (int i = 0; i < p.size(); i++)
 		{
-			Evaluation<DS>& e = eval.evaluate(*p[i].first);
+			Evaluation& e = eval.evaluate(*p[i].first);
 			v.push_back(make_pair(p[i], e.evaluation()));
 			delete &e;
 		}
@@ -255,12 +257,12 @@ public:
 		return pNova;
 	}
 
-	virtual void localSearch(Solution<R, ADS>& s, Evaluation<DS>& e, double timelimit, double target_f)
+	virtual void localSearch(Solution<R, ADS>& s, Evaluation& e, double timelimit, double target_f)
 	{
 		ls.exec(s, e, timelimit, target_f);
 	}
 
-	pair<Solution<R, ADS>&, Evaluation<DS>&>* search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation<DS>* _e = NULL)
+	pair<Solution<R, ADS>&, Evaluation&>* search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation* _e = NULL)
 	{
 		cout << "ES search(" << target_f << "," << timelimit << ")" << endl;
 
@@ -281,7 +283,7 @@ public:
 
 			ESContinuousStructure<ESStruct>* m = new ESContinuousStructure<ESStruct>(a);
 
-			Evaluation<DS>& e = eval.evaluate(*s);
+			Evaluation& e = eval.evaluate(*s);
 
 			pop[i] = make_pair(make_pair(s, m), e.evaluation());
 
@@ -356,7 +358,7 @@ public:
 				Solution<R, ADS>* filho_bl = filho;
 
 				//double tEval = tnowClone.now();
-				Evaluation<DS>& e = eval.evaluate(*filho_bl);
+				Evaluation& e = eval.evaluate(*filho_bl);
 				//sumEval += tnowClone.now() - tEval;
 				//counter++;
 
@@ -415,14 +417,26 @@ public:
 		}
 
 		Solution<R, ADS>& s = *sStar;
-		Evaluation<DS>& e = *eStar;
+		Evaluation& e = *eStar;
 
 		//cout<<s.getR();
 		//getchar();
 		//delete eStar;
 		//delete sStar;
 
-		return new pair<Solution<R, ADS>&, Evaluation<DS>&>(s, e);
+		return new pair<Solution<R, ADS>&, Evaluation&>(s, e);
+	}
+
+	static string idComponent()
+	{
+		stringstream ss;
+		ss << SingleObjSearch<R, ADS>::idComponent() << "ESContinous";
+		return ss.str();
+	}
+
+	virtual string id() const
+	{
+		return idComponent();
 	}
 
 };

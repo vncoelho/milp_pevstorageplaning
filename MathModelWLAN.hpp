@@ -16,9 +16,13 @@
 #include <stdlib.h>
 #include <math.h>
 #include <iostream>
+#include <fstream>      // std::ifstream
 #include <sstream>
 #include "OptFrame/Util/MultiObjectiveMetrics2.hpp"
 #include "OptFrame/RandGen.hpp"
+#include "OptFrame/Timer.hpp"
+#include "MyProjects/MILPStoragePlanning/Representation.h"
+#include "MyProjects/MILPStoragePlanning/Solution.h"
 
 #include <vector>
 
@@ -27,12 +31,92 @@ ILOSTLBEGIN
 using namespace std;
 using namespace optframe;
 
+namespace MILPStoragePlanning
+{
+
+char* execCommand(const char* command)
+{
+
+	FILE* fp;
+	char* line = NULL;
+	// Following initialization is equivalent to char* result = ""; and just
+	// initializes result to an empty string, only it works with
+	// -Werror=write-strings and is so much less clear.
+	char* result = (char*) calloc(1, 1);
+	size_t len = 0;
+
+	fflush(NULL);
+	fp = popen(command, "r");
+	if (fp == NULL)
+	{
+		printf("Cannot execute command:\n%s\n", command);
+		return NULL;
+	}
+
+	while (getline(&line, &len, fp) != -1)
+	{
+		// +1 below to allow room for null terminator.
+		result = (char*) realloc(result, strlen(result) + strlen(line) + 1);
+		// +1 below so we copy the final null terminator.
+		strncpy(result + strlen(result), line, strlen(line) + 1);
+		free(line);
+		line = NULL;
+	}
+
+	fflush(fp);
+	if (pclose(fp) != 0)
+	{
+		perror("Cannot close stream.\n");
+	}
+
+	return result;
+}
+
+double hipervolume(vector<vector<double> > v)
+{
+	int nSol = v.size();
+	int nObj = v[0].size();
+	string tempFile = "tempFileHipervolueFunc";
+	FILE* fTempHV = fopen(tempFile.c_str(), "w");
+
+	for (int s = 0; s < nSol; s++)
+	{
+		for (int o = 0; o < nObj; o++)
+		{
+			fprintf(fTempHV, "%.7f\t", v[s][o]);
+		}
+		fprintf(fTempHV, "\n");
+	}
+
+	fclose(fTempHV);
+	stringstream ss;
+	ss << "./hv\t -r \"" << 10000 << " " << 1000 << " " << 1000 << "\" \t" << tempFile.c_str();
+	string hvValueString = execCommand(ss.str().c_str());
+	double hvValue = atof(hvValueString.c_str());
+	return hvValue;
+}
+
 struct TupleMILPCoef
 {
 	double coefTotalCost, coefMaxLoad, coefWearTear;
 
 	TupleMILPCoef(double _coefTotalCost, double _coefWearTear, double _coefMaxLoad) :
 			coefTotalCost(_coefTotalCost), coefMaxLoad(_coefMaxLoad), coefWearTear(_coefWearTear)
+	{
+	}
+};
+
+struct MIPStartSolution
+{
+	vector<vector<vector<bool> > > pevsDischarge;
+	vector<vector<vector<bool> > > pevsCharge;
+
+	double objCost;
+	double objWearTear;
+	double objMaxPeakLoad;
+
+	MIPStartSolution(vector<vector<vector<bool> > > _pevsDischarge, vector<vector<vector<bool> > > _pevsCharge, double _objCost, double _objMaxPeakLoad, double _objWearTear) :
+			pevsDischarge(_pevsDischarge), pevsCharge(_pevsCharge), objCost(_objCost), objMaxPeakLoad(_objMaxPeakLoad), objWearTear(_objWearTear)
 	{
 	}
 };
@@ -55,6 +139,43 @@ public:
 
 	}
 
+	void analyzeParetoFronts(string outputPF1, int sizePF1, string outputPF2, int sizePF2)
+	{
+		int nObj = 3;
+		UnionNDSets2 uND(nObj);
+		//===================================
+		// TEST PARETO
+
+		vector<vector<double> > PF1 = uND.unionSets(outputPF1.c_str(), sizePF1);
+		vector<vector<double> > PF2 = uND.unionSets(outputPF2.c_str(), sizePF2);
+		vector<vector<double> > ref = uND.unionSets(PF1, PF2);
+		cout << PF1.size() << endl;
+		cout << PF2.size() << endl;
+		cout << ref.size() << endl;
+		int card = uND.cardinalite(PF1, ref);
+		double sCToRef = uND.setCoverage(PF1, ref);
+		double sCFromRef = uND.setCoverage(ref, PF1);
+		vector<double> utopicSol;
+		utopicSol.push_back(-10000);
+		utopicSol.push_back(0);
+		utopicSol.push_back(0);
+		//Delta Metric and Hipervolume need to verify min
+		cout << "Cardinalite = " << uND.cardinalite(PF1, ref) << endl;
+		cout << "Cardinalite = " << uND.cardinalite(PF2, ref) << endl;
+		cout << "uND.setCoverage(PF1, ref)  = " << uND.setCoverage(PF1, ref) << endl;
+		cout << "uND.setCoverage(PF2, ref)  = " << uND.setCoverage(PF2, ref) << endl;
+		cout << "uND.setCoverage(PF2, PF1)  = " << uND.setCoverage(PF2, PF1) << endl;
+		cout << "uND.setCoverage(PF1, PF2)  = " << uND.setCoverage(PF1, PF2) << endl;
+		cout << "delta  = " << uND.deltaMetric(ref, utopicSol) << endl;
+		cout << "delta  = " << uND.deltaMetric(PF1, utopicSol) << endl;
+		cout << "delta  = " << uND.deltaMetric(PF2, utopicSol) << endl;
+		cout << "hv  = " << hipervolume(ref) << endl;
+		cout << "hv  = " << hipervolume(PF1) << endl;
+		cout << "hv  = " << hipervolume(PF2) << endl;
+
+		cout << "analises done with sucess!" << endl;
+		//============
+	}
 	void printVectorOfVector(vector<vector<double> > Pop)
 	{
 		int nObj = Pop[0].size();
@@ -420,7 +541,77 @@ public:
 
 	}
 
-	void exec()
+	vector<int> findLPNumberVariables(IloNumVarArray& var)
+	{
+		vector<int> variablesNumber;
+
+//		cout << var << endl;
+		//objCost[-inf..inf] , objWearTear[-inf..inf] , objMaxLoad[-inf..inf]
+		// energySelling(1),energyBuying(1)
+		// yCharge(C1,1,1), yCharge(C1,2,1), ..., yCharge(C3,Cycle,1), ..., yDischarge(C3,Cyle,1)
+		// energySelling(..),energyBuying(..)
+		// yCharge(....) ... yDischarge(...)
+		// BaterryRate(C1,1), BaterryRate(C2,1), ...,  yBaterryRate(pev,Interval)
+		// energySellingActive(1), energySellingActive(2), ..., energyBuyingActive(1), energyBuyingActive(2),...
+		// totalChargingDischargingPayed
+		//						for (int lpVar = 0; lpVar < var.getSize(); lpVar++)
+		//						{
+		//							string varName = var[lpVar].getName();
+		//							cout << varName.c_str() << endl;
+		//							int variableFound = varName.find("yCharge(C1");
+
+		cout << "Finding LP number of variable..." << endl;
+		int counterNumberCycles = 0;
+		int countPEVS = 0;
+		int countIntervals = 0;
+		int variableFound = 0;
+		string varName;
+		while (variableFound == 0)
+		{
+			counterNumberCycles++;
+			varName = var[5 + counterNumberCycles].getName();
+			variableFound = varName.find("yCharge(C1");
+		}
+		variableFound = 0;
+		while (variableFound == 0)
+		{
+			countPEVS++;
+			varName = var[5 + countPEVS].getName();
+			variableFound = varName.find("yCharge");
+		}
+
+		for (int lpVar = 5; lpVar < var.getSize(); lpVar++)
+		{
+			varName = var[lpVar].getName();
+			variableFound = varName.find("yBaterryRate(C1,2");
+
+			while (variableFound == 0)
+			{
+				countIntervals++;
+				varName = var[lpVar + countIntervals].getName();
+				variableFound = varName.find("yBaterryRate(C1");
+			}
+
+			if (countIntervals > 0)
+			{
+				// first constraints was not counted, started cycle 2
+				countIntervals = countIntervals + 1;
+				lpVar = var.getSize();
+			}
+		}
+		countPEVS /= counterNumberCycles;
+//		cout << counterNumberCycles << endl;
+//		cout << countPEVS << endl;
+//		cout << countIntervals << endl;
+//		getchar();
+		variablesNumber.push_back(counterNumberCycles);
+		variablesNumber.push_back(countPEVS);
+		variablesNumber.push_back(countIntervals);
+
+		return variablesNumber;
+	}
+
+	void exec(string filename, bool mipStart, int nIntervalsCoef, int tLim)
 	{
 
 		cout << "Exec Math Model Smart Energy Storage" << endl;
@@ -430,28 +621,25 @@ public:
 		UnionNDSets2 uND(nObj);
 
 		vector<string> vInputModel;
-		vInputModel.push_back("bWCM");
+//		vInputModel.push_back("bWCM");
 //		vInputModel.push_back("arqRealData24Worst");
 //		vInputModel.push_back("arqRealData24Best");
+		vInputModel.push_back(filename.c_str());
+
+		bool playWithBestMIPStartSolution = mipStart;
+		//forcing playWithBestMIPStartSolution
+//		playWithBestMIPStartSolution = true;
 
 		vector<int> vNMaxOpt;
 		//TODO verificar erro quando valor eh 5 -
 		// Updated: March 2016 -- seams to be fixed adding one element to vector of coeficients
-		vNMaxOpt.push_back(10);
+		vNMaxOpt.push_back(nIntervalsCoef);
 
 		vector<int> vTLim;
-		vTLim.push_back(10);
+		vTLim.push_back(tLim);
 
-		int nIntervals = 24;
-		int nDiscrete = 100;
-		int nPEV = 20;
+		int nIntervals, nDiscrete, nPEV, nVariablesPerInterval, nTotal;
 		int nObjMILP = 3;
-//		nIntervals = 24;
-//		nDiscrete = 11;
-//		nPEV = 3;
-
-		int nVariablesPerInterval = (2 * nDiscrete * nPEV) + 2;
-		int nTotal = nIntervals * nVariablesPerInterval + nObjMILP;
 
 		for (int iM = 0; iM < vInputModel.size(); iM++)
 			for (int nM = 0; nM < vNMaxOpt.size(); nM++)
@@ -501,7 +689,7 @@ public:
 					IloEnv env;
 					try
 					{
-
+						Timer tTotal;
 						IloCplex cplex(env);
 						IloModel model(env);
 						IloObjective obj;
@@ -513,12 +701,26 @@ public:
 
 						cplex.importModel(model, modelLPAdress.c_str(), obj, var, rng);
 
+						// ========= Finding LP number of variable ==============
+						vector<int> numberVariables = findLPNumberVariables(var);
+						nDiscrete = numberVariables[0];
+						nPEV = numberVariables[1];
+						nIntervals = numberVariables[2];
+						nVariablesPerInterval = (2 * nDiscrete * nPEV) + 2;
+						nTotal = nIntervals * nVariablesPerInterval + nObjMILP;
+
+						cout << "number of Discharge and Charges cycles = " << nDiscrete << endl;
+						cout << "number of nPEVs = " << nPEV << endl;
+						cout << "number of nIntervals = " << nIntervals << endl;
+						// ========= Finding LP number of variable ==============
+
 						int nMILPProblems = vCoef.size();
 						cout << "nMILPProblems = " << nMILPProblems << endl;
 //						getchar();
+						bool milpHasBeenSaved = false;
+						vector<MIPStartSolution> poolMIPStart;
 						for (int milpProblems = 0; milpProblems <= nMILPProblems; milpProblems++)
 						{
-
 							double coefTotalCost = vCoef[milpProblems].coefTotalCost;
 							double coefWearTear = vCoef[milpProblems].coefWearTear;
 							double coefMaxLoad = vCoef[milpProblems].coefMaxLoad;
@@ -567,12 +769,13 @@ public:
 
 //============== PLAYING WITH STARTING MIP==============///
 //============================================================///
+//							if (milpHasBeenSaved)
+//								cplex.readMIPStarts("./poolMIPStarts.mst");
 
 //							cplex.readMIPStart("./LP/sol.mst");
 //							cplex.readMIPStarts("./LP/allSol.mst");
 //							cplex.readMIPStarts("./LP/sol.mst");
 //							cplex.readMIPStarts("./LP/sol2.mst");
-//							cplex.readMIPStarts("./LP/allSol.mst");
 
 //							IloNumArray valsMIP(env);
 //							cplex.getValues(valsMIP, var, 0);
@@ -604,6 +807,70 @@ public:
 
 //							getchar();
 
+							if (playWithBestMIPStartSolution)
+							{
+								int totalNMIPStartSolutions = poolMIPStart.size();
+								if (totalNMIPStartSolutions > 0)
+								{
+									cout << "Pool of MIP start solution has: " << totalNMIPStartSolutions << " possibilities" << endl;
+
+									double bestFO = 100000000000000;
+									int bestMIPStartIndex = -1;
+									//Selecting best MIP start for the current weights
+									for (int mipS = 0; mipS < totalNMIPStartSolutions; mipS++)
+									{
+
+										double mipObj = poolMIPStart[mipS].objCost;
+										double mipWearTear = poolMIPStart[mipS].objWearTear;
+										double mipMaxLoad = poolMIPStart[mipS].objMaxPeakLoad;
+
+										double currentMILPObj = coefTotalCost * mipObj + mipWearTear * coefWearTear + coefMaxLoad * mipMaxLoad;
+//										cout << "MIP start obj values:" << endl;
+										//									cout << "objCost = " << mipObj << endl;
+//									cout << "objWearTear = " << mipWearTear << endl;
+//									cout << "objMaxLoad = " << mipMaxLoad << endl;
+//									cout << "MILP obj with current coef  = " << currentMILPObj << endl;
+
+										if (currentMILPObj < bestFO)
+										{
+											bestFO = currentMILPObj;
+											bestMIPStartIndex = mipS;
+//										   cout << "bestFO: " << bestFO << "\t index:" << bestMIPStartIndex << endl;
+										}
+//									getchar();
+									}
+
+									cout << "best MIPStart solution is: " << bestFO << "\t index:" << bestMIPStartIndex << endl << endl;
+
+									//=======================
+
+									IloNumVarArray startVar(env);
+									IloNumArray startVal(env);
+									int mipStartIntervalIDX = 0;
+									MIPStartSolution bestMIPStart = poolMIPStart[bestMIPStartIndex];
+									for (int nV = 3; nV < nTotal; nV += nVariablesPerInterval)
+									{
+										for (int pev = 0; pev < nPEV; pev++)
+											for (int c = 0; c < nDiscrete; c++)
+											{
+												startVar.add(var[nV + 1 + c + 1 + pev * nDiscrete]);
+												startVal.add(bestMIPStart.pevsCharge[mipStartIntervalIDX][pev][c]);
+											}
+
+										for (int pev = 0; pev < nPEV; pev++)
+											for (int c = 0; c < nDiscrete; c++)
+											{
+												startVar.add(var[nV + 1 + nPEV * nDiscrete + c + 1 + pev * nDiscrete]);
+												startVal.add(bestMIPStart.pevsDischarge[mipStartIntervalIDX][pev][c]);
+											}
+
+										mipStartIntervalIDX++;
+									}
+									cplex.addMIPStart(startVar, startVal);
+
+								}
+							}
+
 //==============FINISH PLAYING WITH STARTING MIP==============///
 //============================================================///
 
@@ -630,9 +897,42 @@ public:
 								cout << nCplexPoolOfSolutions << " solutions were obtained. \n";
 								cout << "=====================================\n\n";
 							}
+							//	getchar();
 
 							//getchar();
 							IloNumArray vals(env);
+
+//							if (nCplexPoolOfSolutions > 0)
+//							{
+//
+//								if (!milpHasBeenSaved) // This is the first time
+//								{
+//									cout << "writeMIPS " << cplex.getNMIPStarts() << " starts solutions for the first time" << endl;
+//									cplex.writeMIPStarts("poolMIPStarts.mst", 0, nCplexPoolOfSolutions);
+//									totalMIPStartSolutions += nCplexPoolOfSolutions;
+//
+//									std::ifstream f("poolMIPStarts.mst");
+//									f.seekg(0, f.end);
+//									int length = f.tellg();
+//									cout << "length = " << length << endl;
+//									getchar();
+//
+//								}
+//								else
+//								{
+//									cout << "adding solution to the main MIP solutions files" << endl;
+//									cplex.writeMIPStarts("temp.mst", 0, nCplexPoolOfSolutions);
+//									totalMIPStartSolutions += nCplexPoolOfSolutions;
+//
+//								}
+//
+//								cout << "cplex.getNMIPStarts2(): " << cplex.getNMIPStarts() << endl;
+//								cout << "totalMIPStartSolutions: " << totalMIPStartSolutions << endl;
+//
+//								getchar();
+//
+//								milpHasBeenSaved = true;
+//							}
 
 							if (nCplexPoolOfSolutions > 0)
 								for (int nS = 0; nS < nCplexPoolOfSolutions; nS++)
@@ -670,8 +970,7 @@ public:
 									double totalChargingDischargingPayed = vals[vals.getSize() - 1];
 									cout << "totalChargingDischargingPayed = " << totalChargingDischargingPayed << endl;
 
-//								cplex.writeSolution("teste.mst", nS);
-//								cplex.writeMIPStarts("solMIPStart.mst", nS);
+									//								cplex.writeSolution("teste.mst", nS);
 //								cout<<nMILPProblems<<endl;
 //								getchar();
 //								cplex.writeMIPStarts("solMIPStart.mst", nS);
@@ -700,6 +999,7 @@ public:
 											cout << "energySold = " << energySold << endl;
 											cout << var << endl;
 											cout << vals << endl;
+											cout << "BUG! energy being bought" << endl;
 											getchar();
 										}
 										// =======================================================
@@ -797,6 +1097,12 @@ public:
 //									fo.push_back(0); //sharpe ratio max load
 									Pop.push_back(fo);
 									PopGridRate.push_back(gridRate);
+//									Population<RepMILPStoragePlanning> p_a;
+//									bool added = addSolution(pa_a, s);
+
+									MIPStartSolution mipStartSol(energyDischarging, energyCharging, objCost, objMaxPeakLoad, objWearTear);
+									poolMIPStart.push_back(mipStartSol);
+//									cout<< s.getR().pevsCharge  <<endl;
 
 									cout << "Solution: " << nS + 1 << "/" << nCplexPoolOfSolutions << " has been extracted with success and added to the population" << endl;
 									cout << "=====================================\n";
@@ -806,7 +1112,7 @@ public:
 							cout << "=====================================\n\n";
 
 						}
-
+						cout << "total time spent: " << tTotal.now() << endl;
 						cout << "Printing obtained population of solutions with size :" << Pop.size() << endl;
 						printVectorOfVector(Pop);
 						vector<vector<double> > paretoSET = uND.createParetoSet(Pop);
@@ -820,7 +1126,14 @@ public:
 						vParetoSet.push_back(paretoSET);
 
 						stringstream ss;
-						ss << "./ResultadosFronteiras/ParetoFrontInput" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL];
+						if (mipStart)
+						{
+							ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "-bestMIPStart";
+						}
+						else
+						{
+							ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL]; // << "-bestMIPStart";
+						}
 
 						FILE* fFronteiraPareto = fopen(ss.str().c_str(), "w");
 						for (int nS = 0; nS < nParetoInd; nS++)
@@ -831,26 +1144,28 @@ public:
 							}
 							fprintf(fFronteiraPareto, "\n");
 						}
+						fprintf(fFronteiraPareto, "%.5f \n ", tTotal.now());
+
 						fclose(fFronteiraPareto);
 
-						stringstream ssRate;
-						ssRate << "./ResultadosFronteiras/ParetoFrontInput" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "SolutionsRate";
-
-						FILE* fFronteiraParetoRate = fopen(ssRate.str().c_str(), "w");
-						for (int nS = 0; nS < nParetoInd; nS++)
-						{
-							for (int nE = 0; nE < nObj; nE++)
-							{
-								fprintf(fFronteiraParetoRate, "%.5f \t ", paretoPopRate.first[nS][nE]);
-							}
-							fprintf(fFronteiraParetoRate, "\n");
-							for (int i = 0; i < nIntervals; i++)
-							{
-								fprintf(fFronteiraParetoRate, "%.5f \t ", paretoPopRate.second[nS][i]);
-							}
-							fprintf(fFronteiraParetoRate, "\n \n");
-						}
-						fclose(fFronteiraParetoRate);
+//						stringstream ssRate;
+//						ssRate << "./ResultadosFronteiras/ResultsREM2016" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "SolutionsRate";
+//
+//						FILE* fFronteiraParetoRate = fopen(ssRate.str().c_str(), "w");
+//						for (int nS = 0; nS < nParetoInd; nS++)
+//						{
+//							for (int nE = 0; nE < nObj; nE++)
+//							{
+//								fprintf(fFronteiraParetoRate, "%.5f \t ", paretoPopRate.first[nS][nE]);
+//							}
+//							fprintf(fFronteiraParetoRate, "\n");
+//							for (int i = 0; i < nIntervals; i++)
+//							{
+//								fprintf(fFronteiraParetoRate, "%.5f \t ", paretoPopRate.second[nS][i]);
+//							}
+//							fprintf(fFronteiraParetoRate, "\n \n");
+//						}
+//						fclose(fFronteiraParetoRate);
 
 						//getchar();
 
@@ -909,5 +1224,5 @@ public:
 
 }
 ;
-
+}
 #endif /* OPTIMALLINEARREGRESSION_HPP_ */

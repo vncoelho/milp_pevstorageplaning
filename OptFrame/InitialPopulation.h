@@ -24,8 +24,9 @@
 #include "Population.hpp"
 
 #include "Component.hpp"
-
+#include "RandGen.hpp"
 #include "Constructive.h"
+#include "Heuristics/GRASP/GRConstructive.h"
 
 using namespace std;
 
@@ -75,7 +76,7 @@ public:
 	virtual Population<R, ADS>& generatePopulation(unsigned populationSize)
 	{
 		Population<R, ADS>* p = new Population<R, ADS>;
-		for(unsigned i = 0; i < populationSize; i++)
+		for (unsigned i = 0; i < populationSize; i++)
 			p->push_back(&constructive.generateSolution());
 		return *p;
 	}
@@ -84,6 +85,54 @@ public:
 	{
 		stringstream ss;
 		ss << Population<R, ADS>::idComponent() << ":BasicInitialPopulation";
+		return ss.str();
+	}
+
+	virtual string id() const
+	{
+		return idComponent();
+	}
+};
+
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+class GRInitialPopulation: public InitialPopulation<R, ADS>
+{
+public:
+	GRConstructive<R, ADS>& constructive;
+	RandGen& rg;
+	double maxAlpha; // limit the solution to be not so random
+
+	GRInitialPopulation(GRConstructive<R, ADS>& _constructive, RandGen& _rg, double _maxAlpha) :
+			constructive(_constructive), rg(_rg), maxAlpha(_maxAlpha)
+	{
+	}
+
+	virtual ~GRInitialPopulation()
+	{
+	}
+
+	virtual Population<R, ADS>& generatePopulation(unsigned populationSize)
+	{
+		Population<R, ADS>* p = new Population<R, ADS>;
+		for (unsigned i = 0; i < populationSize; i++)
+		{
+			float alpha = rg.rand01();
+			while (alpha > maxAlpha)
+			{
+				alpha = rg.rand01();
+			}
+
+			if (alpha == 0)
+				alpha = 0.00001;
+			p->push_back(&constructive.generateSolution(alpha));
+		}
+		return *p;
+	}
+
+	static string idComponent()
+	{
+		stringstream ss;
+		ss << Population<R, ADS>::idComponent() << ":GRInitialPopulation";
 		return ss.str();
 	}
 

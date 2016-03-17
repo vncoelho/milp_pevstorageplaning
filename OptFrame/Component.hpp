@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -81,6 +81,25 @@ class Component
 public:
 
 	Log* logdata;
+
+	static bool safe_delete(Component* c)
+	{
+		if (c)
+		{
+			delete c;
+			return true;
+		}
+		else
+			return false;
+	}
+
+	static void safe_print(Component* c)
+	{
+		if(c)
+			c->print();
+		else
+			cout << "NULL Component" << endl;
+	}
 
 	void initializeLog()
 	{

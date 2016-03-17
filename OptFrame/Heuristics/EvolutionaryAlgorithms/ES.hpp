@@ -26,230 +26,199 @@
 
 #include "../../LocalSearch.hpp"
 #include "../../NSSeq.hpp"
+#include "../../Evaluator.hpp"
+#include "../../Constructive.h"
+#include "../../RandGen.hpp"
 #include "../../SingleObjSearch.hpp"
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
+//#include <gsl/gsl_rng.h>
+//#include <gsl/gsl_randist.h>
 
 #include "../../Timer.hpp"
-namespace optframe
-{
 
 //ESTRUTURA DA ESTRATEGIA EVOLUTIVA
 //CONSTITUIDA POR PROBABILIDADE DE APLICACAO, N APLICACOES, MOVIMENTO]
 
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-struct Tuple
+namespace optframe
+{
+
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+struct EsStructure
 {
 	double pr; // probability
 	int nap; // number of applications
-	NSSeq<R, ADS, DS>* ns;
+	double sigmaN;
+	double sigmaB;
 
-	Tuple(double _pr, int _nap, NSSeq<R, ADS, DS>* _ns) :
-			pr(_pr), nap(_nap), ns(_ns)
+	EsStructure(double _pr, int _nap, double _sigmaN, double _sigmaB) :
+			pr(_pr), nap(_nap), sigmaN(_sigmaN), sigmaB(_sigmaB)
 	{
 	}
 };
 
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+struct IndividuoES
+{
+	Solution<R, ADS>* sInd; // probability
+	Evaluation* e;
+	vector<EsStructure<R, ADS> >* vEsStructureInd; // number of applications
+	vector<int> vNSInd;
+
+	IndividuoES(Solution<R, ADS>* _sInd, Evaluation* _e, vector<EsStructure<R, ADS> >* _vEsStructureInd, int nNS) :
+			sInd(_sInd), e(_e), vEsStructureInd(_vEsStructureInd)
+	{
+		for (int i = 0; i < nNS; i++)
+			vNSInd.push_back(i);
+
+		random_shuffle(vNSInd.begin(), vNSInd.end());
+	}
+
+	IndividuoES(Solution<R, ADS>* _sInd, Evaluation* _e, vector<EsStructure<R, ADS> >* _vEsStructureInd, vector<int> _vNSInd) :
+			sInd(_sInd), e(_e), vEsStructureInd(_vEsStructureInd), vNSInd(_vNSInd)
+	{
+
+	}
+};
+
 //CADA INDIVIDUO EH UM PAR DE SOLUCAO E UMA TUPLE COM O PARAMETROS DA ESTRATEGIA
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class ES: public SingleObjSearch<R, ADS, DS>
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
+class ES: public SingleObjSearch<R, ADS>
 {
 private:
-
+	string path, outputFile;
+	int batch;
 	Solution<R, ADS>* sStar;
-	Evaluation<DS>* eStar;
-	Evaluator<R, ADS, DS>& eval;
+	Evaluation* eStar;
+	Evaluator<R, ADS>& eval;
 	Constructive<R, ADS>& constructive;
-	vector<NSSeq<R, ADS, DS>*> vNS;
-	LocalSearch<R, ADS, DS>& ls;
+	vector<NSSeq<R, ADS>*> vNS;
+	vector<int> vNSeqMaxApplication;
+	LocalSearch<R, ADS>& ls;
 	RandGen& rg;
 
-	int nParam;
+	int nNS;
 	const int mi;
 	const int lambda;
-	const int gMax;
-	int iterSemMelhora;
+	const int gMaxWithoutImprovement;
+	int iterWithoutImprovement;
 	int gAtual;
+	int selectionMethod;
+	double mutationRate;
 
-	typedef pair<Solution<R, ADS>*, vector<Tuple<R, ADS, DS> >*> Individuo;
+	typedef vector<IndividuoES<R, ADS> > Populacao;
 
-	typedef vector<Individuo> Populacao;
-
-	static bool compara(pair<Individuo, double> p1, pair<Individuo, double> p2)
+	static bool compareESIndividuo(IndividuoES<R, ADS> p1, IndividuoES<R, ADS> p2)
 	{
-		return p1.second < p2.second;
+		double eP1 = p1.e->evaluation();
+		double eP2 = p2.e->evaluation();
+		return eP1 < eP2;
 	}
 
-	double rand_normal_continuo(double media, double desvpad)
+public:
+
+	//Evaluator, constructive, vNS -- vector with neighboorhods strucutures able to move solution,
+	//vNSeqMaxApplication -- vector with the max number of moves of each neigh
+	//optional local search, selectionMethod, mutationRate, others...
+	ES(Evaluator<R, ADS>& _eval, Constructive<R, ADS>& _constructive, vector<NSSeq<R, ADS>*> _vNS, vector<int> _vNSeqMaxApplication, LocalSearch<R, ADS>& _ls, int _selectionMethod, double _mutationRate, RandGen& _rg, int _mi, int _lambda, int _gMaxWithoutImprovement, string _outputFile, int _batch) :
+			eval(_eval), constructive(_constructive), vNS(_vNS), vNSeqMaxApplication(_vNSeqMaxApplication), ls(_ls), selectionMethod(_selectionMethod), mutationRate(_mutationRate), rg(_rg), mi(_mi), lambda(_lambda), gMaxWithoutImprovement(_gMaxWithoutImprovement), outputFile(_outputFile), batch(_batch)
 	{
+		nNS = vNS.size();
+		sStar = NULL;
+		eStar = NULL;
 
-		const gsl_rng_type * RGSL;
-		gsl_rng * r;
-		gsl_rng_env_setup();
-		RGSL = gsl_rng_default;
-		r = gsl_rng_alloc(RGSL);
+		iterWithoutImprovement = 0;
+		gAtual = 0;
 
-		//gsl_rng * r = gsl_rng_alloc(gsl_rng_ranlux);
-
-		double y;
-		y = media + gsl_ran_gaussian(r, desvpad);
-
-		gsl_rng_free(r);
-
-		return y;
+		// selectionMethod == 0 low selection pressure (mi,lambda)
+		// selectionMethod == 1 selection pressure (mi+lambda)
 	}
 
-	int rand_binomial(double media, double desvpad)
+	virtual ~ES()
 	{
-		const gsl_rng_type * RGSL;
-		gsl_rng * r;
-		gsl_rng_env_setup();
-		RGSL = gsl_rng_default;
-		r = gsl_rng_alloc(RGSL);
-
-		//gsl_rng * r = gsl_rng_alloc(gsl_rng_ranlux);
-
-		int y;
-		y = gsl_ran_binomial(r, 0.5, desvpad);
-		gsl_rng_free(r);
-
-		return y;
 	}
 
-	double rand_unif() // not zero!
+	void mutateESParams(vector<EsStructure<R, ADS> >* p, vector<int>& vNSInd, int nNS)
 	{
-		double r = (rand() % 1000) / 1000.0;
-		if (r == 0)
-			r += 0.0001;
-		return r;
-	}
-
-	double rand_nap()
-	{
-		double r = (rand() % 10) + 1;
-		return r;
-	}
-
-	double rand_double()
-	{
-
-		double normal_media_0 = rand_unif() - 0.5;
-
-		return normal_media_0 / 3.5;
-	}
-
-	int rand_int()
-	{
-		int r = rand() % 8;
-		if (r == 1)
-			return 1;
-		if (r == 2)
-			return 1;
-		if (r == 3)
-			return 2;
-		if (r == 4)
-			return 3;
-		if (r == 5)
-			return -1;
-		if (r == 6)
-			return -1;
-		if (r == 7)
-			return -2;
-		if (r == 8)
-			return -3;
-
-		return 0;
-	}
-
-	//FUNCAO UTILZIADA NO QuickSort
-
-	void mutaParametros(vector<Tuple<R, ADS, DS> >* p)
-	{
-
-		for (int param = 0; param < nParam; param++) // 8 vizinhancas
+		double z = rg.rand01();
+		if (z <= mutationRate)
 		{
-			//p->at(param).pr += rand_double();
-			p->at(param).pr += rg.randG(0,0.5);
+			int posX = rg.rand(nNS);
+			int posY = rg.rand(nNS);
+			if (nNS > 1)
+			{
+				while (posY == posX)
+				{
+					posY = rg.rand(nNS);
+				}
+			}
 
-			//Verifica a faixa de [0,1] dos parametros
+			iter_swap(vNSInd.begin() + posX, vNSInd.begin() + posY);
+		}
+
+		for (int param = 0; param < nNS; param++) // 8 vizinhancas
+		{
+
+			p->at(param).sigmaN += rg.randG(0, 0.1) / 100.0;
+			if (p->at(param).sigmaN < 0)
+				p->at(param).sigmaN = 0;
+			if (p->at(param).sigmaN > 3)
+				p->at(param).sigmaN = 3;
+			p->at(param).pr += rg.randG(0, p->at(param).sigmaN);
 			if (p->at(param).pr < 0)
 				p->at(param).pr = 0;
 			if (p->at(param).pr > 1)
 				p->at(param).pr = 1;
 
-			p->at(param).nap += rand_int();
-
-			if (p->at(param).nap < 0)
-				p->at(param).nap = 0;
-			if (p->at(param).nap > 15)
-				p->at(param).nap = 15;
+			p->at(param).sigmaB += rg.randG(0, 0.1) / 100.0;
+			if (p->at(param).sigmaB < 0)
+				p->at(param).sigmaB = 0;
+			if (p->at(param).sigmaB > 1)
+				p->at(param).sigmaB = 1;
+			p->at(param).nap += rg.randBinomialWithNegative(p->at(param).sigmaB, 10);
+			if (p->at(param).nap < 1)
+				p->at(param).nap = 1;
+			if (p->at(param).nap > vNSeqMaxApplication[param])
+				p->at(param).nap = vNSeqMaxApplication[param];
 		}
+
 	}
 
-	void mutaParametrosDistribuicoes(vector<Tuple<R, ADS, DS> >* p, double sigmaC, double sigmaD)
+	void applyMutationOperators(Solution<R, ADS>* s, vector<EsStructure<R, ADS> >* p, vector<int> vNSInd, int nNS)
 	{
-
-		for (int param = 0; param < nParam; param++) // 8 vizinhancas
+		for (int i = 0; i < nNS; i++)
 		{
-			p->at(param).pr += rand_normal_continuo(0, sigmaC);
-
-			//Verifica a faixa de [0,1] dos parametros
-			if (p->at(param).pr < 0)
-				p->at(param).pr = 0;
-			if (p->at(param).pr > 1)
-				p->at(param).pr = 1;
-
-			p->at(param).nap += rand_binomial(0.5, sigmaD);
-
-			if (p->at(param).nap < 0)
-				p->at(param).nap = 0;
-			if (p->at(param).nap > 15)
-				p->at(param).nap = (rand() % 10) + 1;
-		}
-	}
-
-	void aplicaParametros(Solution<R, ADS>* s, vector<Tuple<R, ADS, DS> >* p)
-	{
-
-		for (int param = 0; param < nParam; param++) // 8 vizinhancas
-		{
-			double rx = rand_unif();
+			int param = vNSInd[i];
+			double rx = rg.rand01();
 			if (rx < p->at(param).pr)
 				for (int a = 1; a <= p->at(param).nap; a++)
 				{
-					Move<R, ADS, DS>* mov_tmp = &p->at(param).ns->move(*s);
+					Move<R, ADS>* mov_tmp = &vNS[param]->move(*s);
+
+//					int tries = 0;
+//					int maxTries = 1;
+//
+//					while ((!mov_tmp->canBeApplied(*s)) && (tries < maxTries))
+//					{
+//						delete mov_tmp;
+//						mov_tmp = &vNS[param]->move(*s);
+//						tries++;
+//					}
 
 					if (mov_tmp->canBeApplied(*s))
 					{
-						Move<R, ADS, DS>* mov_rev = &mov_tmp->apply(*s);
+						Move<R, ADS>* mov_rev = mov_tmp->apply(*s);
 						delete mov_rev;
 					}
 					else
 					{
-						//cout << ".";
+//						cout << "cannot be applied NS:" << param;
+//						cout << "\tnumber of tries:" << tries << endl;
+//						getchar();
 					}
 
 					delete mov_tmp;
 				}
 		}
 
-	}
-
-public:
-
-	ES(Evaluator<R, ADS, DS>& _eval, Constructive<R, ADS>& _constructive, vector<NSSeq<R, ADS, DS>*> _vNS, LocalSearch<R, ADS, DS>& _ls, RandGen& _rg, int _mi, int _lambda, int _gMax) :
-			eval(_eval), constructive(_constructive), vNS(_vNS), ls(_ls), rg(_rg), mi(_mi), lambda(_lambda), gMax(_gMax)
-	{
-		nParam = vNS.size();
-		sStar = NULL;
-		eStar = NULL;
-
-		iterSemMelhora = 0;
-		gAtual = 0;
-	}
-
-	virtual ~ES()
-	{
 	}
 
 	/*
@@ -287,16 +256,14 @@ public:
 			aux[i] = false;
 
 		//ORDECAO QuickSort
-		vector<pair<Individuo, double> > v;
+		vector<IndividuoES<R, ADS> > v;
 
 		for (int i = 0; i < p.size(); i++)
 		{
-			Evaluation<DS>& e = eval.evaluate(*p[i].first);
-			v.push_back(make_pair(p[i], e.evaluation()));
-			delete &e;
+			v.push_back(p[i]);
 		}
 
-		sort(v.begin(), v.end(), compara); // ordena com QuickSort
+		sort(v.begin(), v.end(), compareESIndividuo); // ordena com QuickSort
 
 		int n = 0;
 
@@ -330,85 +297,90 @@ public:
 
 	Populacao& competicao(Populacao& pais, Populacao& filhos)
 	{
-		vector<pair<Individuo, double> > v;
+		vector<IndividuoES<R, ADS> > v;
 
 		for (int i = 0; i < pais.size(); i++)
-		{
-			Evaluation<DS>& e = eval.evaluate(*pais[i].first);
-			v.push_back(make_pair(pais[i], e.evaluation()));
-			delete &e;
-		}
+			v.push_back(pais[i]);
 
 		for (int i = 0; i < filhos.size(); i++)
-		{
-			Evaluation<DS>& e = eval.evaluate(*filhos[i].first);
-			v.push_back(make_pair(filhos[i], e.evaluation()));
-			delete &e;
-		}
+			v.push_back(filhos[i]);
 
-		sort(v.begin(), v.end(), compara); // ordena com QuickSort
+		sort(v.begin(), v.end(), compareESIndividuo); // ordena com QuickSort
 
 		Populacao* p = new Populacao;
 
 		double fo_pop = 0;
+		int nIndComp = v.size();
 
-		for (int i = 0; i < v.size(); i++)
+		for (int i = 0; i < nIndComp; i++)
+		{
 			if (i < mi)
 			{
-				p->push_back(v[i].first);
-				fo_pop += v[i].second;
+				p->push_back(v[i]);
+				fo_pop += v[i].e->evaluation();
 			}
 			else
 			{
-				delete v[i].first.first; // Solution
-				delete v[i].first.second; // vectors de mutacao e prob
+				delete v[i].sInd; // Solution
+				delete v[i].vEsStructureInd; // vectors de mutacao e prob
+				delete v[i].e; // vectors de mutacao e prob
 			}
+		}
 
-		fo_pop = fo_pop / mi;
-		//cout << "Media Competicao, media: " << fo_pop << endl;
+//		fo_pop = fo_pop / mi;
+//		cout << "Average fo after competition:" << fo_pop << endl;
+//		getchar();
 
 		//AVALIA MELHOR INDIVIDUO
-		double fo;
-		fo = v[0].second;
+		double fo = v[0].e->evaluation();
 
 		if (eval.betterThan(fo, eStar->evaluation()))
 		{
-			//verificar se algo deve ser apagado todo
-			sStar = &v[0].first.first->clone();
-			eStar = &eval.evaluate(*sStar);
+			delete eStar;
+			delete sStar;
+			eStar = &v[0].e->clone();
+			sStar = &v[0].sInd->clone();
 
-			cout << "Iter:" << gAtual << "\tIterSemMelhora: " << iterSemMelhora;
-			cout << "\t Best: " << v[0].second;
-			cout << "\t [";
-			for (int param = 0; param < nParam; param++)
+			cout << "Gen:" << gAtual << " | noImp: " << iterWithoutImprovement;
+			cout << " | Best: " << eStar->evaluation() << "\t [";
+			for (int param = 0; param < nNS; param++)
 			{
-				cout << "(" << p->at(0).second->at(param).pr;
+				cout << "(" << p->at(0).vEsStructureInd->at(param).pr;
 				cout << ",";
-				cout << p->at(0).second->at(param).nap << ") ";
+				cout << p->at(0).vEsStructureInd->at(param).nap << ") ";
 			}
-			cout << "]" << endl;
+			cout << "]\t";
+			cout << p->at(0).vNSInd << endl;
 
-			FILE* arquivo = fopen("logParam.txt", "a");
-			if (!arquivo)
+			if (Component::debug)
 			{
-				cout << "ERRO: falha ao criar arquivo \"logParam.txt\"" << endl;
-			}
-			else
-			{
-				fprintf(arquivo, "%d\t", gAtual);
-				for (int param = 0; param < nParam; param++)
+				stringstream ss;
+				ss << outputFile << "_" << "best";
+				string outputBest = ss.str();
+				FILE* arquivo = fopen(outputBest.c_str(), "a");
+				if (!arquivo)
 				{
-					fprintf(arquivo, "%.4f\t%d\t", p->at(0).second->at(param).pr, p->at(0).second->at(param).nap);
+					cout << "ERRO: falha ao criar arquivo \"outputBest.txt\"" << endl;
 				}
-				fprintf(arquivo, "\n");
-				fclose(arquivo);
+				else
+				{
+					fprintf(arquivo, "%d\t%d\t%d\t", batch, gAtual, iterWithoutImprovement);
+					for (int param = 0; param < nNS; param++)
+					{
+						double pr = p->at(0).vEsStructureInd->at(param).pr;
+						int nap = p->at(0).vEsStructureInd->at(param).nap;
+						double prNap = pr * nap;
+						fprintf(arquivo, "%f\t%d\t%f\t", pr, nap, prNap);
+					}
+					fprintf(arquivo, "\n");
+					fclose(arquivo);
+				}
 			}
-
-			iterSemMelhora = 0;
+			iterWithoutImprovement = 0;
 
 		}
 		else
-			iterSemMelhora++;
+			iterWithoutImprovement++;
 
 		return *p;
 	}
@@ -418,37 +390,38 @@ public:
 		//onlyOffsprings
 		Populacao pop_nula;
 		Populacao& pNova = competicao(pop_nula, pop_filhos);
+		pop_nula.clear();
 
 		for (int i = 0; i < pop.size(); i++)
 		{
-			delete pop[i].first;
-			delete pop[i].second;
+			delete pop[i].sInd;
+			delete pop[i].vEsStructureInd;
+			delete pop[i].e;
 		}
 
-		pop_nula.clear();
-
 		return pNova;
 	}
 
-	Populacao& highSelectivePression(Populacao& pop, Populacao& pop_filhos)
+	Populacao&
+	highSelectivePression(Populacao& pop, Populacao& pop_filhos)
 	{
 		Populacao& pNova = competicao(pop, pop_filhos);
-
 		return pNova;
 	}
 
-	virtual void localSearch(Solution<R, ADS>& s, Evaluation<DS>& e, double timelimit, double target_f)
+	virtual void localSearch(Solution<R, ADS>& s, Evaluation& e, double timelimit, double target_f)
 	{
 		ls.exec(s, e, timelimit, target_f);
 	}
 
-	pair<Solution<R, ADS>&, Evaluation<DS>&>* search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation<DS>* _e = NULL)
+	pair<Solution<R, ADS>&, Evaluation&>*
+	search(double timelimit = 100000000, double target_f = 0, const Solution<R, ADS>* _s = NULL, const Evaluation* _e = NULL)
 	{
 		cout << "ES search(" << target_f << "," << timelimit << ")" << endl;
 
 		Timer tnow;
 
-		Populacao pop(mi);
+		Populacao pop;
 		double fo_inicial = 0;
 
 		//GERANDO VETOR DE POPULACAO INICIAL
@@ -456,56 +429,48 @@ public:
 		{
 			//PartialGreedyInitialSolutionOPM is(opm, 0.4, 0.4, 0.4); // waste, ore, shovel
 			Solution<R, ADS>* s = &constructive.generateSolution();
-			vector<Tuple<R, ADS, DS> >* m = new vector<Tuple<R, ADS, DS> >;
+			vector<EsStructure<R, ADS> >* m = new vector<EsStructure<R, ADS> >;
 
-			for (int nNS = 0; nNS < vNS.size(); nNS++)
+			for (int aux = 0; aux < nNS; aux++)
 			{
-				m->push_back(Tuple<R, ADS, DS>(rand_unif(), rand_nap(), vNS[nNS])); //Movement Load
+				//probability, application, sigmaNomal, sigmaBinomial
+				m->push_back(EsStructure<R, ADS>(rg.rand01(), rg.randBinomial(0.5, 10) + 1, rg.rand01(), rg.rand01()));
 			}
 
-			pop[i] = make_pair(s, m);
+			Evaluation* e = &eval.evaluate(*s);
+			IndividuoES<R, ADS> ind(s, e, m, nNS);
+			pop.push_back(ind);
 
-			Evaluation<DS>& e = eval.evaluate(*s);
-			fo_inicial += e.evaluation();
+			fo_inicial += e->evaluation();
 
 			if (i == 0)
 			{
-				eStar = &e;
-				sStar = &pop[i].first->clone();
-				//cout<<"e.evaluation() = "<<(double)e.evaluation()<<endl;
-				//cout<< " eStar = "<<(double)eStar->evaluation()<<endl;
-				//getchar();
-
+				eStar = &pop[i].e->clone();
+				sStar = &pop[i].sInd->clone();
 			}
 			else
 			{
-				if (eval.betterThan(e.evaluation(), eStar->evaluation()))
+				if (eval.betterThan(pop[i].e->evaluation(), eStar->evaluation()))
 				{
-					eStar = &e;
-					//cout<<"e.evaluation() = "<<(double)e.evaluation()<<endl;
-					//getchar();
-					//verificar se eh necessario deletar sStar anterior todo
-					sStar = &pop[i].first->clone();
+					delete sStar;
+					delete eStar;
+					eStar = &pop[i].e->clone();
+					sStar = &pop[i].sInd->clone();
 				}
 			}
-
-			//delete &e;
 
 		}
 
 		cout << "Valor Medio das FO's da POP inicial: " << fo_inicial / mi << endl;
 		cout << " eStar = " << (double) eStar->evaluation() << endl;
 		// ===============================
-
-		//int gAtual = 0;
+//
 
 		//INICIA PARAMETROS DE MUTACAO
-		double sigmaC = 0.1;
-		double sigmaD = 5;
+		vector<vector<pair<double, double> > > meanParamsGenerations;
 
-		iterSemMelhora = 0;
-
-		while ((iterSemMelhora < gMax) && ((tnow.now()) < timelimit) && eval.betterThan(target_f, eStar->evaluation()))
+		iterWithoutImprovement = 0;
+		while ((iterWithoutImprovement < gMaxWithoutImprovement) && ((tnow.now()) < timelimit) && eval.betterThan(target_f, eStar->evaluation()))
 		{
 			Populacao pop_filhos;
 			double fo_filhos = 0;
@@ -513,35 +478,34 @@ public:
 			//GERA OS OFFSPRINGS
 			for (int l = 1; l <= lambda; l++)
 			{
-				int x = rand() % mi;
+				int x = rg.rand(mi);
 
 				// Cria Filho e Tuple de Parametros (pi,nap,vizinhança)
-				Solution<R, ADS>* filho = &pop[x].first->clone();
-				vector<Tuple<R, ADS, DS> >* vt = new vector<Tuple<R, ADS, DS> >(*pop[x].second);
+				Solution<R, ADS>* filho = &pop[x].sInd->clone();
+				vector<EsStructure<R, ADS> >* vt = new vector<EsStructure<R, ADS> >(*pop[x].vEsStructureInd);
+				vector<int> vNSInd = pop[x].vNSInd;
 
 				// Mutacao dos parametros l
-				mutaParametros(vt);
+				//mutaParametros(vt);
 
-				//mutaParametrosDistribuicoes(vt, sigmaC, sigmaD);
+				mutateESParams(vt, vNSInd, nNS);
 
 				// application dos parametros para gerar filho completo
-				aplicaParametros(filho, vt);
+				applyMutationOperators(filho, vt, vNSInd, nNS);
 
-				// Busca Local em cada Filho
-				//TODO
+				// Optional -- Local Search in each Offspring.
 
 				// Sem Busca Local
 				Solution<R, ADS>* filho_bl = filho;
 
-				pop_filhos.push_back(make_pair(filho_bl, vt));
+				Evaluation* e = &eval.evaluate(*filho_bl);
+				fo_filhos += e->evaluation();
 
-				Evaluation<DS>& e = eval.evaluate(*filho_bl);
-				fo_filhos += e.evaluation();
-				delete &e;
-
+				IndividuoES<R, ADS> ind(filho_bl, e, vt, vNSInd);
+				pop_filhos.push_back(ind);
 			}
 
-			//cout << "Valor Medio das FO's dos filhos: " << fo_filhos / mi << endl;
+			//cout << "Offspring mean FO, iter " << gAtual << ":\t" << fo_filhos / mi << endl;
 
 			//APLICA B.L VND EM 'nb' INDIVIDUOS DA POP_FILHOS
 			//aplicaBuscaLocalBests(pop_filhos, 2);
@@ -552,106 +516,115 @@ public:
 			//cout<<" local search finished!"<<endl;
 			//getchar();
 			// ETAPA DE SELECAO - MI,LAMBDA ou MI + LAMBDA // ATUALIZA BEST
-			//cout<<"Applying selection ..."<<endl;
-			Populacao& pNova = lowSelectivePression(pop, pop_filhos); //Estrategia (Mi,Lamda)
-			//Populacao& pNova = highSelectivePression(pop, pop_filhos); //Estrategia (Mi+Lamda)
-			//cout<<"selection finished !"<<endl;
+
+			// =====================Selection ==================
+
+			Populacao* pNew;
+
+			switch (selectionMethod)
+			{
+			case 0:
+				pNew = &lowSelectivePression(pop, pop_filhos); //Estrategia (Mi,Lamda)
+//				cout << "Selection low selective pression!" << endl;
+//				getchar();
+				break;
+			case 1:
+				pNew = &highSelectivePression(pop, pop_filhos); //Estrategia (Mi+Lamda)
+				break;
+//			case 2:
+//
+//				if (iterWithoutImprovement < 500)
+//					pNew = highSelectivePression(pop, pop_filhos); //Estrategia (Mi,Lamda)
+//				else
+//					pNew = lowSelectivePression(pop, pop_filhos); //Estrategia (Mi,Lamda)
+//
+//				break;
+
+			default:
+				cout << "Error! Selection not performed!" << endl;
+				getchar();
+			}
+
 			pop.clear();
 			pop_filhos.clear();
+			pop = *pNew;
+			pNew->clear(); //TODO check if something should be deleted
+			// =====================End Selection ==================
 
-			pop = pNova;
+			// ====================================================
+			//Statitics about evolution of the params
 
-			//INCREMENTA GERACAO
+			vector<pair<double, double> > meanParams;
+
+			for (int param = 0; param < nNS; param++)
+			{
+				double meanPR = 0;
+				double meanNAP = 0;
+				for (int i = 0; i < mi; i++)
+				{
+					meanPR += pop[i].vEsStructureInd->at(param).pr;
+					meanNAP += pop[i].vEsStructureInd->at(param).nap;
+					//					cout << "(" << pop[i].second->at(param).pr;
+					//					cout << ",";
+					//					cout << pop[i].second->at(param).nap << ") ";
+				}
+				meanPR /= mi;
+				meanNAP /= mi;
+				meanParams.push_back(make_pair(meanPR, meanNAP));
+				//				cout << "(" << meanPR;
+				//				cout << ",";
+				//				cout << meanNAP << ") ";
+
+			}
+			//cout << endl;
+			meanParamsGenerations.push_back(meanParams);
+
+			if (Component::debug)
+			{
+				FILE* arquivo = fopen(outputFile.c_str(), "a");
+				if (!arquivo)
+				{
+					cout << "ERRO: falha ao criar arquivo \"outputFileES.txt\"" << endl;
+				}
+				else
+				{
+					fprintf(arquivo, "%d\t%d\t", batch, gAtual);
+					for (int param = 0; param < nNS; param++)
+					{
+						double pr = meanParams[param].first;
+						double nap = meanParams[param].second;
+						double prNap = meanParams[param].second * meanParams[param].first;
+						fprintf(arquivo, "%f\t%f\t%f\t", pr, nap, prNap);
+					}
+					fprintf(arquivo, "\n");
+					fclose(arquivo);
+				}
+			}
+
+			// ====================================================
+
 			gAtual++;
-
-			delete &pNova;
 		}
 
-		//BUSCA LOCAL NO MELHOR INDIVIDUO COM TODAS AS 8 VIZINHANÇAS
+		//BUSCA LOCAL NO MELHOR INDIVIDUO
 
 		/*Solution<R, ADS>* sStarBL = &ls.search(*sStar);
-		 Evaluation<DS>& eStarBL = eval.evaluate(*sStarBL);
+		 Evaluation& eStarBL = eval.evaluate(*sStarBL);
 		 cout << "eStarBL = " << (double) eStarBL.evaluation() << endl;
 		 cout << "eStar = " << (double) eStar->evaluation() << endl;*/
 
 		cout << "tnow.now() = " << tnow.now() << " timelimit = " << timelimit << endl;
-		cout << "Acabou ES = iterSemMelhor = " << iterSemMelhora << " gMax = " << gMax << endl;
-		cout << "target_f = " << target_f << " eStar->evaluation() = " << (double) eStar->evaluation() << endl;
+		cout << "Acabou ES = iterWithoutImprovement = " << iterWithoutImprovement << " gMaxWithoutImprovement = " << gMaxWithoutImprovement << endl;
+		cout << "target_f = " << target_f << " eStar->evaluation() = " << eStar->evaluation() << endl;
 		//getchar();
 
-		Solution<R, ADS>& s = *sStar;
-		Evaluation<DS>& e = *eStar;
-
-		//cout<<s.getR();
-		//getchar();
-		//delete eStar;
-		//delete sStar;
-
-		return new pair<Solution<R, ADS>&, Evaluation<DS>&>(s, e);
-	}
-
-};
-
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class ESBuilder: public SingleObjSearchBuilder<R, ADS, DS>
-{
-public:
-	virtual ~ESBuilder()
-	{
-	}
-
-	virtual SingleObjSearch<R, ADS, DS>* build(Scanner& scanner, HeuristicFactory<R, ADS, DS>& hf, string family = "")
-	{
-		Evaluator<R, ADS, DS>* eval;
-		hf.assign(eval, scanner.nextInt(), scanner.next()); // reads backwards!
-
-		Constructive<R, ADS>* constructive;
-		hf.assign(constructive, scanner.nextInt(), scanner.next()); // reads backwards!
-
-		vector<NSSeq<R, ADS, DS>*> hlist;
-		hf.assignList(hlist, scanner.nextInt(), scanner.next()); // reads backwards!
-
-		string rest = scanner.rest();
-
-		pair<LocalSearch<R, ADS, DS>*, std::string> method;
-		method = hf.createLocalSearch(rest);
-
-		LocalSearch<R, ADS, DS>* h = method.first;
-
-		scanner = Scanner(method.second);
-
-		int mi = scanner.nextInt();
-		int lambda = scanner.nextInt();
-		int gMax = scanner.nextInt();
-
-		return new ES<R, ADS, DS>(*eval, *constructive, hlist, *h, hf.getRandGen(), mi, lambda, gMax);
-	}
-
-	virtual vector<pair<string, string> > parameters()
-	{
-		vector<pair<string, string> > params;
-		params.push_back(make_pair(Evaluator<R, ADS, DS>::idComponent(), "evaluation function"));
-		params.push_back(make_pair(Constructive<R, ADS>::idComponent(), "constructive heuristic"));
-		stringstream ss;
-		ss << NS<R, ADS, DS>::idComponent() << "[]";
-		params.push_back(make_pair(ss.str(), "list of local searches"));
-		params.push_back(make_pair(LocalSearch<R, ADS, DS>::idComponent(), "local search"));
-		params.push_back(make_pair("int", "mi"));
-		params.push_back(make_pair("int", "lambda"));
-		params.push_back(make_pair("int", "gMax"));
-
-		return params;
-	}
-
-	virtual bool canBuild(string component)
-	{
-		return component == ES<R, ADS, DS>::idComponent();
+		return new pair<Solution<R, ADS>&, Evaluation&>(*sStar, *eStar);
 	}
 
 	static string idComponent()
 	{
 		stringstream ss;
-		ss << SingleObjSearchBuilder<R, ADS, DS>::idComponent() << "ES";
+		ss << SingleObjSearch<R, ADS>::idComponent() << "ES";
 		return ss.str();
 	}
 
@@ -659,7 +632,9 @@ public:
 	{
 		return idComponent();
 	}
+
 };
 
 }
+
 #endif /* ES_HPP_ */

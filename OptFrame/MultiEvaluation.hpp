@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -28,21 +28,23 @@ using namespace std;
 namespace optframe
 {
 
-template<class DS = OPTFRAME_DEFAULT_DS>
-class MultiEvaluation: public Component //nevector<Evaluation<DS>*>
+class MultiEvaluation: public Component
 {
 protected:
-	vector<Evaluation<DS>*> vev;
+	vector<Evaluation*> vev;
 
 public:
 
+	MultiEvaluation()
+	{
+	}
 
-	MultiEvaluation(Evaluation<DS>* ev)
+	MultiEvaluation(Evaluation* ev)
 	{
 		vev.push_back(ev);
 	}
 
-	MultiEvaluation(const Evaluation<DS>& ev)
+	MultiEvaluation(const Evaluation& ev)
 	{
 		vev.push_back(&ev.clone());
 	}
@@ -50,16 +52,16 @@ public:
 	MultiEvaluation(const vector<double>& vd)
 	{
 		for(unsigned i = 0; i < vd.size(); i++)
-			vev.push_back(new Evaluation<DS>(vd[i]));
+			vev.push_back(new Evaluation(vd[i]));
 	}
 
-	MultiEvaluation(const vector<Evaluation<DS>*>& _vev)
+	MultiEvaluation(const vector<Evaluation*>& _vev)
 	{
 		for(unsigned i = 0; i < _vev.size(); i++)
 			vev.push_back(&_vev[i]->clone());
 	}
 
-	MultiEvaluation(const MultiEvaluation<DS>& mev)
+	MultiEvaluation(const MultiEvaluation& mev)
 	{
 		for(unsigned i = 0; i < mev.vev.size(); i++)
 			vev.push_back(&mev.vev[i]->clone());
@@ -72,18 +74,18 @@ public:
 		vev.clear();
 	}
 
-	void addEvaluation(const Evaluation<DS>& ev)
+	void addEvaluation(const Evaluation& ev)
 	{
 		vev.push_back(&ev.clone());
 	}
 
-	void addEvaluation(Evaluation<DS>* ev)
+	void addEvaluation(Evaluation* ev)
 	{
 		vev.push_back(ev);
 	}
 
 
-	unsigned size()
+	unsigned size() const
 	{
 		return vev.size();
 	}
@@ -95,40 +97,40 @@ public:
 		vev.erase(vev.begin() + index);
 	}
 
-	Evaluation<DS>& at(unsigned index)
+	Evaluation& at(unsigned index)
 	{
 		return *vev.at(index);
 	}
 
-	const Evaluation<DS>& at(unsigned index) const
+	const Evaluation& at(unsigned index) const
 	{
 		return *vev.at(index);
 	}
 
-	Evaluation<DS>& operator[](unsigned index)
+	Evaluation& operator[](unsigned index)
 	{
-		return vev[index];
+		return *vev[index];
 	}
 
-	const Evaluation<DS>& operator[](unsigned index) const
+	const Evaluation& operator[](unsigned index) const
 	{
-		return vev[index];
+		return *vev[index];
 	}
 
-	const vector<Evaluation<DS>*>& getVector() const
+	const vector<Evaluation*>& getVector() const
 	{
 		return vev;
 	}
 
-	vector<Evaluation<DS>*> getCloneVector() const
+	vector<Evaluation*> getCloneVector() const
 	{
-		vector<Evaluation<DS>*> v_e;
+		vector<Evaluation*> v_e;
 		for(unsigned i=0; i<vev.size(); i++)
 			v_e.push_back(&vev[i]->clone());
 		return v_e;
 	}
 
-	bool sameValues(const MultiEvaluation<DS>& mev)
+	bool sameValues(const MultiEvaluation& mev)
 	{
 		if(vev.size() != mev.vev.size())
 			return false;
@@ -140,7 +142,7 @@ public:
 	}
 
 
-	virtual MultiEvaluation<DS>& operator=(const MultiEvaluation<DS>& mev)
+	virtual MultiEvaluation& operator=(const MultiEvaluation& mev)
 	{
 		if(&mev == this) // auto ref check
 			return *this;
@@ -151,9 +153,21 @@ public:
 		return *this;
 	}
 
-	virtual MultiEvaluation<DS>& clone() const
+	virtual MultiEvaluation& clone() const
 	{
-		return *new MultiEvaluation<DS>(*this);
+		return *new MultiEvaluation(*this);
+	}
+
+	void clearNoKill()
+	{
+		this->vev.clear();
+	}
+
+	void clear()
+	{
+		for(unsigned i=0; i<vev.size(); i++)
+			delete vev[i];
+		this->vev.clear();
 	}
 
 	virtual void print() const

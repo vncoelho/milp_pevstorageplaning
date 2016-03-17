@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -29,8 +29,8 @@ using namespace optframe;
 
 // Working structure: vector<T>
 
-template<class T, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class MoveTSP2Opt: public Move<vector<T> , ADS, DS >
+template<class T, class ADS = OPTFRAME_DEFAULT_ADS>
+class MoveTSP2Opt: public Move<vector<T>, ADS>
 {
 	typedef vector<T> Route;
 
@@ -42,7 +42,7 @@ protected:
 public:
 
 	MoveTSP2Opt(int _p1, int _p2, OPTFRAME_DEFAULT_PROBLEM* _problem = NULL) :
-		p1(_p1), p2(_p2), problem(_problem)
+			p1(_p1), p2(_p2), problem(_problem)
 	{
 	}
 
@@ -67,24 +67,24 @@ public:
 		return all_positive && (rep.size() >= 2) && less;
 	}
 
-	virtual Move<Route, ADS, DS >& apply(Route& rep, ADS&)
+	virtual Move<Route, ADS>* apply(Route& rep, ADS&)
 	{
 
 		reverse(rep.begin() + p1, rep.begin() + p2);
 
 		// r1->r1, r2->r2, e1->i1, e2->i2, n1->n2, n2->n1, i1->e1, i2->e2
-		return *new MoveTSP2Opt(p1, p2);
+		return new MoveTSP2Opt(p1, p2);
 	}
 
-	virtual bool operator==(const Move<Route, ADS, DS >& _m) const
-	{
+	virtual bool operator==(const Move<Route, ADS>& _m) const
+			{
 		const MoveTSP2Opt& m1 = (const MoveTSP2Opt&) _m;
 		return ((m1.p1 == p1) && (m1.p2 == p2));
 	}
 
 	static string idComponent()
 	{
-		string idComp = Move<vector<T>, ADS, DS>::idComponent();
+		string idComp = Move<vector<T>, ADS>::idComponent();
 		idComp.append("MoveTSP2Opt");
 		return idComp;
 	}

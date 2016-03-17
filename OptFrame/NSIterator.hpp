@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -23,14 +23,31 @@
 
 #include "Move.hpp"
 
+#include "Solution.hpp"
+
 #include "Component.hpp"
-#include "Action.hpp"
+//#include "Action.hpp"
 
 using namespace std;
 
 namespace optframe
 {
 
+// Local Optimum Status
+enum LOS
+{
+    los_yes, los_no, los_unknown, los_partial
+};
+
+// exemplo: mochila NSSeq de incrementos (+1).
+// Comeca 'unknown'.
+// Se nao pode mais incrementar nada vira 'yes'.
+// Se perturba um pouquinho vira 'no' (pq sabe como voltar).
+
+// 'partial' indicates that the solution is partially in a local optimum (maybe the word semi-local optimum is better...)
+// it may happen for example in a VRP, where a route is in LO while others are not.
+
+// TODO: unused?
 class IteratorOutOfBound
 {
 private:
@@ -47,7 +64,7 @@ public:
 	}
 };
 
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
 class NSIterator: public Component
 {
 public:
@@ -58,7 +75,12 @@ public:
 	virtual void first() = 0;
 	virtual void next() = 0;
 	virtual bool isDone() = 0;
-	virtual Move<R, ADS, DS>& current() = 0;
+	virtual Move<R, ADS>& current() = 0;
+
+    // INSERT LOCAL OPTIMUM INFORMATION IN SOLUTION (IN ADS? USER DECIDES.)
+    virtual void setLOS(LOS status, Solution<R, ADS>& s)
+    {
+    }
 
 	static string idComponent()
 	{
@@ -71,146 +93,6 @@ public:
 	{
 		return idComponent();
 	}
-};
-
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
-class NSIteratorAction: public Action<R, ADS, DS>
-{
-public:
-
-	virtual ~NSIteratorAction()
-	{
-	}
-
-	virtual string usage()
-	{
-		string u;
-		u.append("OptFrame:NSIterator idx  first\n");
-		u.append("OptFrame:NSIterator idx  next\n");
-		u.append("OptFrame:NSIterator idx  isDone   [output_variable] => boolean\n");
-		u.append("OptFrame:NSIterator idx  current  [output_variable] => OptFrame:Move");
-		return u;
-	}
-
-	virtual bool handleComponent(string type)
-	{
-		return Component::compareBase(NSIterator<R, ADS, DS>::idComponent(), type);
-	}
-
-	virtual bool handleComponent(Component& component)
-	{
-		return component.compatible(NSIterator<R, ADS, DS>::idComponent());
-	}
-
-	virtual bool handleAction(string action)
-	{
-		return (action == "first") || (action == "next") || (action == "isDone") || (action == "current");
-	}
-
-	virtual bool doCast(string component, int id, string type, string variable, HeuristicFactory<R, ADS, DS>& hf, map<string, string>& d)
-	{
-		if(!handleComponent(type))
-		{
-			cout << "NSIteratorAction::doCast error: can't handle component type '" << type << " " << id << "'" << endl;
-			return false;
-		}
-
-		Component* comp = hf.components[component].at(id);
-
-		if(!comp)
-		{
-			cout << "NSIteratorAction::doCast error: NULL component '" << component << " " << id << "'" << endl;
-			return false;
-		}
-
-		if(!Component::compareBase(comp->id(), type))
-		{
-			cout << "NSIteratorAction::doCast error: component '" << comp->id() << " is not base of " << type << "'" << endl;
-			return false;
-		}
-
-		// remove old component from factory
-		hf.components[component].at(id) = NULL;
-
-		// cast object to lower type
-		Component* final = NULL;
-
-		if(type == NSIterator<R, ADS, DS>::idComponent())
-		{
-			final = (NSIterator<R, ADS, DS>*) comp;
-		}
-		else
-		{
-			cout << "NSIteratorAction::doCast error: no cast for type '" << type << "'" << endl;
-			return false;
-		}
-
-		// add new component
-		Scanner scanner(variable);
-		return ComponentAction<R, ADS, DS>::addAndRegister(scanner, *final, hf, d);
-	}
-
-	virtual bool doAction(string content, HeuristicFactory<R, ADS, DS>& hf, map<string, string>& dictionary, map<string, vector<string> >& ldictionary)
-	{
-		//cout << "NSIterator::doAction '" << content << "'" << endl;
-
-		Scanner scanner(content);
-
-		if(!scanner.hasNext())
-			return false;
-
-		NSIterator<R, ADS, DS>* it;
-		hf.assign(it, scanner.nextInt(), scanner.next());
-
-		if(!it)
-			return false;
-
-		if(!scanner.hasNext())
-			return false;
-
-		string action = scanner.next();
-
-		if(!handleAction(action))
-			return false;
-
-		if(action == "first")
-		{
-			it->first();
-			return true;
-		}
-
-		if(action == "next")
-		{
-			it->next();
-			return true;
-		}
-
-		if(action == "isDone")
-		{
-			if(!scanner.hasNext())
-				return false;
-
-			string var = scanner.next();
-
-			dictionary[var] = Action<R, ADS, DS>::formatBool(it->isDone());
-
-			return true;
-		}
-
-		if(action == "current")
-		{
-			if(!scanner.hasNext())
-				return false;
-
-			Move<R, ADS, DS>& m = it->current();
-
-			return Action<R, ADS, DS>::addAndRegister(scanner, m, hf, dictionary);
-		}
-
-		// no action found!
-		return false;
-	}
-
 };
 
 }

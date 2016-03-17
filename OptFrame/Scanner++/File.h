@@ -1,6 +1,6 @@
 // Scanner Object for C++ - Scanner++
 
-// Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014
+// Copyright (C) 2009-2015, 2012, 2013, 2014
 // scannerpp.sourceforge.net
 //
 // This file is part of the Scanner++ Library v0.98.  This library is free

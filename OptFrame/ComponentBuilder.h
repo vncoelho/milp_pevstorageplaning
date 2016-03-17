@@ -1,6 +1,6 @@
 // OptFrame - Optimization Framework
 
-// Copyright (C) 2009, 2010, 2011
+// Copyright (C) 2009-2015
 // http://optframe.sourceforge.net/
 //
 // This file is part of the OptFrame optimization framework. This framework
@@ -22,17 +22,18 @@
 #define OPTFRAME_COMPONENT_BUILDER_H_
 
 #include "Component.hpp"
+#include "Solution.hpp"
 
 #include "Scanner++/Scanner.h"
 
 using namespace scannerpp;
 
-template<class R, class ADS, class DS > class HeuristicFactory;
+template<class R, class ADS> class HeuristicFactory;
 
 namespace optframe
 {
 
-template<class R, class ADS = OPTFRAME_DEFAULT_ADS, class DS = OPTFRAME_DEFAULT_DS>
+template<class R, class ADS = OPTFRAME_DEFAULT_ADS>
 class ComponentBuilder : public Component
 {
 public:
@@ -40,7 +41,7 @@ public:
 	{
 	}
 
-	virtual Component* buildComponent(Scanner& scanner, HeuristicFactory<R, ADS, DS>& hf, string family = "") = 0;
+	virtual Component* buildComponent(Scanner& scanner, HeuristicFactory<R, ADS>& hf, string family = "") = 0;
 
 	virtual vector<pair<string, string> > parameters() = 0;
 
