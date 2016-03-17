@@ -712,6 +712,7 @@ public:
 						cout << "number of Discharge and Charges cycles = " << nDiscrete << endl;
 						cout << "number of nPEVs = " << nPEV << endl;
 						cout << "number of nIntervals = " << nIntervals << endl;
+//						getchar();
 						// ========= Finding LP number of variable ==============
 
 						int nMILPProblems = vCoef.size();
@@ -901,6 +902,11 @@ public:
 
 							//getchar();
 							IloNumArray vals(env);
+							if (nCplexPoolOfSolutions > 0)
+							{
+								cplex.writeMIPStarts("temp.mst", 0, nCplexPoolOfSolutions);
+								cplex.writeSolutions("tempSol.sol");
+							}
 
 //							if (nCplexPoolOfSolutions > 0)
 //							{
@@ -997,8 +1003,8 @@ public:
 											cout << "BUG!" << endl;
 											cout << "energyBought = " << energyBought << endl;
 											cout << "energySold = " << energySold << endl;
-											cout << var << endl;
-											cout << vals << endl;
+//											cout << var << endl;
+//											cout << vals << endl;
 											cout << "BUG! energy being bought" << endl;
 											getchar();
 										}

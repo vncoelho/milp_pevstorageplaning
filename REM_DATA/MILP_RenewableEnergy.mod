@@ -37,6 +37,9 @@ var objCost;
 var objWearTear;
 var objMaxLoad, >=0;
 
+param gridRateBuying{i in I}  default if (demand[i] - renewableEnergyProduction[i]) > 0 then demand[i] - renewableEnergyProduction[i] else 0;
+param gridRateSelling{i in I} default if (renewableEnergyProduction[i] - demand[i]) > 0 then renewableEnergyProduction[i] - demand[i] else 0;
+param BIGM{i in I} default if (gridRateBuying[i]>0) then (10*(sum{v in PEV} pevPower[v]) + gridRateBuying[i]) else 10*(sum{v in PEV} pevPower[v]) + gridRateSelling[i];
 
 s.t. 
 
@@ -55,8 +58,8 @@ attendVehicleEnergyWish{v in PEV, i in I}: yBaterryRate[v,i] >= pevEnergyWishDep
 
 attendMinDoD{v in PEV, i in I}: yBaterryRate[v,i] >=  pevMinDoD[v]*pevDisp[v,i];
 
-sellingActive{i in I}: energySellingActive[i]*1000000000 >= energySelling[i];
-buyingActive{i in I}: energyBuyingActive[i]*1000000000 >= energyBuying[i];
+sellingActive{i in I}: energySellingActive[i]*BIGM[i] >= energySelling[i];
+buyingActive{i in I}: energyBuyingActive[i]*BIGM[i] >= energyBuying[i];
 sellingOrBuying{i in I}: (energySellingActive[i]+energyBuyingActive[i]) <= 1;
 
 calcTotalDischargePrice: totalChargingDischargingPayed = sum{i in I} sum{v in PEV} sum{c in C} (yDischarge[v,c,i]*pevDischargePrice[v,c]*pevPower[v]/100 + yCharge[v,c,i]*pevChargePrice[v,c]*pevPower[v]/100 );
