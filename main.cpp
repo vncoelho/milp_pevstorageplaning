@@ -34,7 +34,6 @@ int main(int argc, char **argv)
 	cout << "filename = " << filename << endl;
 	cout << "mipStart = " << mipStart << endl;
 
-
 	RandGenMersenneTwister rg;
 	//long  1412730737
 	long seed = time(NULL); //CalibrationMode
@@ -92,13 +91,13 @@ int main(int argc, char **argv)
 	 getchar();
 	 */
 
-	//readParetoSets rPS;
-	//rPS.exec();
+	readParetoSets rPS;
+	rPS.exec(filename, mipStart, nIntervalsCoef, tLim);
 	mathModelWLAN mModel(rg);
 //	mModel.analyzeParetoFronts("./ResultadosFronteiras/ParetoFrontInputbWCMNExec27TLim10-bestMIPStart", 68, "./ResultadosFronteiras/ParetoFrontInputbWCMNExec27TLim10", 44);
 //	getchar();
 
-	mModel.exec(filename, mipStart,nIntervalsCoef,tLim);
+	mModel.exec(filename, mipStart, nIntervalsCoef, tLim);
 
 	cout << "Ended com sucesso!" << endl;
 }

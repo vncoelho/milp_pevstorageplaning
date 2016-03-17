@@ -941,6 +941,7 @@ public:
 //							}
 
 							IloNumArray vals(env);
+
 							if (nCplexPoolOfSolutions > 0)
 								for (int nS = 0; nS < nCplexPoolOfSolutions; nS++)
 								{
@@ -1120,40 +1121,48 @@ public:
 
 						}
 						cout << "total time spent: " << tTotal.now() << endl;
-						cout << "Printing obtained population of solutions with size :" << Pop.size() << endl;
-						printVectorOfVector(Pop);
-						vector<vector<double> > paretoSET = uND.createParetoSet(Pop);
-						pair<vector<vector<double> >, vector<vector<double> > > paretoPopRate = uND.createParetoSetSavingRate(Pop, PopGridRate);
-
-						double nParetoInd = paretoSET.size();
-
-						cout << "Printing Pareto Front of size:" << paretoSET.size() << endl;
-						printVectorOfVector(paretoSET);
-						vector<vector<vector<double> > > vParetoSet;
-						vParetoSet.push_back(paretoSET);
-
-						stringstream ss;
-						if (mipStart)
+						cout << "Obtained population has size :" << Pop.size() << endl;
+						if (Pop.size() > 0)
 						{
-							ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "-bestMIPStart";
+							cout << "Printing obtained population of solutions with size :" << Pop.size() << endl;
+							printVectorOfVector(Pop);
+							vector<vector<double> > paretoSET = uND.createParetoSet(Pop);
+							pair<vector<vector<double> >, vector<vector<double> > > paretoPopRate = uND.createParetoSetSavingRate(Pop, PopGridRate);
+
+							double nParetoInd = paretoSET.size();
+
+							cout << "Printing Pareto Front of size:" << paretoSET.size() << endl;
+							printVectorOfVector(paretoSET);
+							vector<vector<vector<double> > > vParetoSet;
+							vParetoSet.push_back(paretoSET);
+
+							stringstream ss;
+							if (mipStart)
+							{
+								ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "-bestMIPStart";
+							}
+							else
+							{
+								ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL]; // << "-bestMIPStart";
+							}
+
+							FILE* fFronteiraPareto = fopen(ss.str().c_str(), "w");
+							for (int nS = 0; nS < nParetoInd; nS++)
+							{
+								for (int nE = 0; nE < nObj; nE++)
+								{
+									fprintf(fFronteiraPareto, "%.5f \t ", paretoSET[nS][nE]);
+								}
+								fprintf(fFronteiraPareto, "\n");
+							}
+							fprintf(fFronteiraPareto, "%.5f \n ", tTotal.now());
+
+							fclose(fFronteiraPareto);
 						}
 						else
 						{
-							ss << "./ResultadosFronteiras/" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL]; // << "-bestMIPStart";
+							cout << "Any solution was obtained among the: "<<pow(vNMaxOpt[nM], 3) <<"  MILP optimizations with different weighted-sum!"<<endl;
 						}
-
-						FILE* fFronteiraPareto = fopen(ss.str().c_str(), "w");
-						for (int nS = 0; nS < nParetoInd; nS++)
-						{
-							for (int nE = 0; nE < nObj; nE++)
-							{
-								fprintf(fFronteiraPareto, "%.5f \t ", paretoSET[nS][nE]);
-							}
-							fprintf(fFronteiraPareto, "\n");
-						}
-						fprintf(fFronteiraPareto, "%.5f \n ", tTotal.now());
-
-						fclose(fFronteiraPareto);
 
 //						stringstream ssRate;
 //						ssRate << "./ResultadosFronteiras/ResultsREM2016" << vInputModel[iM] << "NExec" << pow(vNMaxOpt[nM], 3) << "TLim" << vTLim[tL] << "SolutionsRate";
