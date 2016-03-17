@@ -901,12 +901,12 @@ public:
 							//	getchar();
 
 							//getchar();
-							IloNumArray vals(env);
-							if (nCplexPoolOfSolutions > 0)
-							{
-								cplex.writeMIPStarts("temp.mst", 0, nCplexPoolOfSolutions);
-								cplex.writeSolutions("tempSol.sol");
-							}
+
+//							if (nCplexPoolOfSolutions > 0)
+//							{
+//								cplex.writeMIPStarts("temp.mst", 0, nCplexPoolOfSolutions);
+//								cplex.writeSolutions("tempSol.sol");
+//							}
 
 //							if (nCplexPoolOfSolutions > 0)
 //							{
@@ -940,6 +940,7 @@ public:
 //								milpHasBeenSaved = true;
 //							}
 
+							IloNumArray vals(env);
 							if (nCplexPoolOfSolutions > 0)
 								for (int nS = 0; nS < nCplexPoolOfSolutions; nS++)
 								{

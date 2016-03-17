@@ -3,9 +3,9 @@
 .cproject
 .project
 .settings
-.mst
 LP
 ResultadosFronteiras
 tempFileHipervolueFunc 
-.mst
+*.mst
+*.sol
 
